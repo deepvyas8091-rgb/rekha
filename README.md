@@ -34,7 +34,7 @@ Limits live in `src/plans.js` and reset on the 1st of each month.
 
 ```bash
 npm install
-npm test          # 17 tests: Drik Panchang reference checks, plans, payments, webhooks
+npm test          # 26 tests: Drik Panchang reference checks, plans, payments, webhooks, AI cost controls
 npm start         # http://localhost:3000
 ```
 
@@ -75,6 +75,22 @@ Signed in: `GET/DELETE /api/me`, `POST/PATCH/DELETE /api/profiles`, `GET /api/pr
 Personal timings: add `&profile=<id>` to `/api/timings` or `/api/calendar` (paid plans; free users get `personalLocked: true`).
 
 Other: `POST /api/billing/webhook` (Razorpay, signature-checked), `GET /api/admin/stats` (header `x-admin-token`).
+
+## AI cost controls
+
+| Control | What it does |
+|---|---|
+| Rules engine first | Timings, panchang, kundli, matching scores and face measurements never call the AI. |
+| Cheaper model where it fits | Haiku 5.5 for daily guidance, free teaser readings and chat; Sonnet 5.5 only for palm photos, full readings and match explanations. Set `MODEL_REPORT` / `MODEL_VISION` / `MODEL_CHAT` to change. |
+| Saved readings reused | An unchanged reading is shown again free (no API call, no allowance used). |
+| Palm results cached | The same photo is never sent twice (stored 90 days in the database). |
+| Daily guidance cached | Written once per profile per day per language. |
+| Prompt caching | Palm-scan instructions (~930 tokens, shared by all users) are cached once scans are frequent enough to pay off; chat follow-ups reuse the earlier conversation at the cache price. `AI_CACHE=auto` (default), `always` or `never`. |
+| Monthly budget | `AI_MONTHLY_BUDGET_USD`: free-tier AI pauses at 80%, all AI at 100%. |
+| Plan limits | Per-profile monthly caps in `src/plans.js`. |
+| Exact cost log | Every call is logged with cache reads and writes; see `/admin`. |
+
+Prompt caching is only applied when it saves money. A cache write costs 1.25x the normal input price and a read 0.05x (Sonnet) or 0.1x (Haiku), so caching only pays when the same prompt repeats within 5 minutes. The reading instructions (~260 tokens) are below Anthropic's 512-token minimum and are not cached; padding them to qualify would cost more than it saves at launch traffic.
 
 ## Accuracy
 

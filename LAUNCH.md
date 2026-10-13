@@ -48,7 +48,10 @@ From now on, every change you upload to GitHub is deployed by Railway automatica
    ANTHROPIC_API_KEY=your-key-from-step-3
    ADMIN_TOKEN=choose-a-long-password-for-your-dashboard
    NODE_ENV=production
+   AI_MONTHLY_BUDGET_USD=30
    ```
+
+   `AI_MONTHLY_BUDGET_USD` is your AI spending cap for the month. At 80% of it, free users' AI readings pause; at 100%, all AI readings pause until the 1st. Timings, panchang and kundli never stop. Raise it as paying users grow.
 
    Leave the Google and Razorpay values out for now; those features stay switched off until you add them. Railway sets the port by itself, and the app creates its own session secret.
 4. **Settings → Deploy → Region**: choose Southeast Asia (Singapore) if offered, the closest region to India.
@@ -114,7 +117,9 @@ Full figures and break-even are in `docs/Rekha_Cost_Model.xlsx`.
 
 ## Every week: 10 minutes
 
-Open `/admin` and look at: new users, paying users, MRR, AI cost this month. If AI cost per user rises, lower the monthly limits in `src/plans.js` (or ask Claude to change them).
+Open `/admin` and look at: new users, paying users, MRR, AI cost this month, AI budget used, and the average cost per reading type. If AI cost per user rises, lower the monthly limits in `src/plans.js` (or ask Claude to change them).
+
+The biggest single AI cost is the paid full reading on the Sonnet model (about ₹1.6 each). To cut it by about 95%, add the variable `MODEL_REPORT=claude-haiku-5-5` in Railway. Compare a few readings in Hindi and English first; if the quality is good enough for your users, keep it.
 
 ## If something goes wrong
 
@@ -125,6 +130,7 @@ Open `/admin` and look at: new users, paying users, MRR, AI cost this month. If 
 | "Payments are not set up yet" | One of the Razorpay values or plan IDs is missing in Railway Variables |
 | Paid but plan did not change | Check the webhook URL and secret match (Step 7.3); Razorpay shows webhook delivery logs |
 | Readings say "Demo" | `ANTHROPIC_API_KEY` is empty, or your Anthropic credit ran out |
+| "AI readings are paused" | The monthly AI budget is used up: raise `AI_MONTHLY_BUDGET_USD` in Railway Variables |
 | Deploy fails with "No storage volume attached" | Attach a volume with mount path `/data` (Step 4.2), then redeploy |
 | Site down for a few seconds after each change | Normal: Railway briefly stops the app to move the volume to the new version |
 | Users or subscriptions disappeared | Restore yesterday's backup: service → **Backups** → **Restore** → **Deploy** |

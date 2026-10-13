@@ -89,7 +89,7 @@ function bindUi() {
   $('#palmFile').addEventListener('change', onPalm);
   $('#faceConsent').addEventListener('change', (e) => { $('#faceFile').disabled = !e.target.checked; });
   $('#faceFile').addEventListener('change', onFace);
-  $('#readBtn').addEventListener('click', onReading);
+  $('#readBtn').addEventListener('click', () => onReading(false));
   $('#lang').addEventListener('change', () => { local.set('lang', $('#lang').value); if (isPaid()) loadDaily(); });
   $('#chatForm').addEventListener('submit', onAsk);
   $('#shareBtn').addEventListener('click', shareCard);
@@ -484,13 +484,19 @@ async function loadSavedReading() {
 function chatAllowance() {
   const a = state.me.allowance?.chat; $('#chatLeft').textContent = a ? `${Math.max(0, a.max - a.used)} questions left this month` : '';
 }
-async function onReading() {
+async function onReading(refresh = false) {
   if (!state.me.user) { openSignin('Sign in for your combined reading. Your first one is free.'); return; }
   if (!current()) { switchTab('chart'); return; }
   const el = $('#reading'); el.hidden = false; el.textContent = 'Writing your reading…';
   try {
-    const r = await post('/api/reading', { profileId: current().id, language: $('#lang').value, location: loc() });
+    const r = await post('/api/reading', { profileId: current().id, language: $('#lang').value, location: loc(), refresh: refresh === true });
     el.textContent = r.text; state.facts = r.facts; state.history = [];
+    if (r.cached) {
+      // Saved reading: shown free. Rewriting it uses one reading from the monthly allowance.
+      const when = new Date(r.at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+      el.insertAdjacentHTML('afterbegin', `<p class="hint">Your saved reading from ${esc(when)}. <button class="linkish" id="rewrite">Write a fresh one</button></p>`);
+      $('#rewrite').addEventListener('click', () => { if (confirm('A fresh reading uses one from this month\'s allowance. Continue?')) onReading(true); });
+    }
     if (r.kind === 'teaser') {
       el.insertAdjacentHTML('beforeend', '<p><button class="primary" id="fullUp">Unlock the full reading: love, career, current phase</button></p>');
       $('#fullUp').addEventListener('click', () => openPlans('The full palm + face + chart reading is part of Premium.'));

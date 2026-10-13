@@ -1,5 +1,6 @@
 // Rekha API + web app. Run: npm start  (PORT defaults to 3000)
 import express from 'express';
+import crypto from 'node:crypto';
 import multer from 'multer';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -188,7 +189,7 @@ app.get('/api/daily/:profileId', requireUser, limit(60), wrap(async (req, res) =
   const record = checkQuota(req.user, 'daily');
   const t = goodBadTimes(date, p.lat, p.lon, p.tz, { birthNakshatra: prof.natal.nakshatraIndex, birthMoonSign: prof.natal.moonSign, activities: ['general', 'business', 'travel'] });
   const facts = { name: prof.name, date, weekday: t.weekday, personal: t.personal, bestWindows: t.bestWindows, avoid: t.badTimes.filter((b) => b.severity === 'high'), panchak: t.panchak, natal: prof.natal };
-  const text = await narrate({ kind: 'daily', facts, language: lang, name: prof.name });
+  const text = await narrate({ kind: 'daily', facts, language: lang, name: prof.name, paid: true });
   store.putDaily(prof.id, date, lang, text);
   record();
   res.json({ date, text });
@@ -211,7 +212,7 @@ app.post('/api/match', limit(30), wrap(async (req, res) => {
     if (!req.user || !planOf(req.user).personal) readingLocked = true;
     else {
       const record = checkQuota(req.user, 'match');
-      reading = await narrate({ kind: 'match', facts: { gunMilan: result, manglik, chinese }, language: req.body.language });
+      reading = await narrate({ kind: 'match', facts: { gunMilan: result, manglik, chinese }, language: req.body.language, paid: true });
       record();
     }
   }
@@ -227,7 +228,7 @@ app.post('/api/palm', limit(20), upload.single('photo'), wrap(async (req, res) =
     if (!req.user) throw httpError(401, 'Please sign in to read your palm lines', 'signin');
     if (!/^image\/(jpeg|png|webp)$/.test(req.file.mimetype)) throw httpError(400, 'Photo must be JPEG, PNG or WebP');
     const record = checkQuota(req.user, 'palm');
-    const raw = await extractPalmLines(req.file.buffer.toString('base64'), req.file.mimetype);
+    const raw = await extractPalmLines(req.file.buffer.toString('base64'), req.file.mimetype, { paid: planOf(req.user).personal });
     if (!raw.cached) record();
     lines = { raw, ...interpretLines(raw) };
   }
@@ -276,13 +277,23 @@ function factsFor(prof, location) {
 app.post('/api/reading', requireUser, limit(15), wrap(async (req, res) => {
   const prof = usableProfile(req.user, req.body.profileId);
   const language = LANGUAGES[req.body.language] ? req.body.language : 'en';
-  const record = checkQuota(req.user, 'reading');
   const facts = factsFor(prof, req.body.location);
   // Free plan gets a short teaser from the cheaper model; paid plans get the full reading.
-  const kind = planOf(req.user).personal ? 'full' : 'teaser';
-  const text = await narrate({ kind, facts, language, name: prof.name });
+  const paid = planOf(req.user).personal;
+  const kind = paid ? 'full' : 'teaser';
+  // Reuse the saved reading when nothing about the person has changed: no API call,
+  // no allowance used. Daily timings are left out of the comparison on purpose.
+  const { today: _today, ...core } = facts;
+  const factsHash = crypto.createHash('sha256').update(JSON.stringify(core)).digest('hex').slice(0, 16);
+  const saved = prof.reading;
+  if (!req.body.refresh && saved?.kind === kind && saved.language === language && saved.factsHash === factsHash
+    && Date.now() - saved.at < 30 * 86400000) {
+    return res.json({ ...saved, facts, cached: true });
+  }
+  const record = checkQuota(req.user, 'reading');
+  const text = await narrate({ kind, facts, language, name: prof.name, paid });
   record();
-  const reading = { text, kind, language, at: Date.now() };
+  const reading = { text, kind, language, at: Date.now(), factsHash };
   store.updateProfile(req.user.id, prof.id, { reading });
   res.json({ ...reading, facts });
 }));
@@ -299,7 +310,8 @@ app.post('/api/ask', requireUser, limit(40), wrap(async (req, res) => {
   if (d) return res.json({ answer: d.message, support: true });
   const prof = usableProfile(req.user, profileId);
   const record = checkQuota(req.user, 'chat');
-  const answer = await ask({ question: String(question).slice(0, 500), facts: factsFor(prof), history: Array.isArray(history) ? history.slice(-8) : [], language });
+  // factsFor(prof) without a location is identical across questions, so follow-ups hit the prompt cache.
+  const answer = await ask({ question: String(question).slice(0, 500), facts: factsFor(prof), history: Array.isArray(history) ? history.slice(-8) : [], language, paid: planOf(req.user).personal });
   record();
   res.json({ answer });
 }));
@@ -309,15 +321,27 @@ app.get('/api/admin/stats', (req, res) => {
   if (!process.env.ADMIN_TOKEN || req.get('x-admin-token') !== process.env.ADMIN_TOKEN) return res.status(403).json({ error: 'forbidden' });
   const s = store.stats();
   const mrr = s.subscribers.reduce((sum, r) => sum + (PLANS[r.plan]?.priceInr || 0) * r.n, 0);
-  res.json({ ...s, mrrInr: mrr, aiCostInrThisMonth: Math.round(s.aiThisMonth.usd * (+process.env.FX_INR || 88)) });
+  const fx = +process.env.FX_INR || 88;
+  const budget = +process.env.AI_MONTHLY_BUDGET_USD || null;
+  const a = s.aiThisMonth;
+  res.json({
+    ...s, mrrInr: mrr, aiCostInrThisMonth: Math.round(a.usd * fx),
+    ai: {
+      budgetUsd: budget, spentUsd: +a.usd.toFixed(4), budgetUsedPct: budget ? Math.round((a.usd / budget) * 100) : null,
+      cacheHitPct: a.tokens_in ? Math.round((a.cache_read / a.tokens_in) * 100) : 0,
+      cacheMode: process.env.AI_CACHE || 'auto',
+    },
+  });
 });
 
 app.use(express.static(path.join(__dirname, '..', 'public'), { extensions: ['html'] }));
 
 app.use((err, _req, res, _next) => {
   const status = err.status || 500;
-  if (status >= 500) console.error(err);
-  res.status(status).json({ error: status >= 500 ? 'Something went wrong. Please try again.' : err.message, code: err.code });
+  const expected = status < 500 || err.code === 'ai_paused';
+  if (!expected) console.error(err);
+  if (err.code === 'ai_paused') console.warn(`AI budget reached: ${err.message}`);
+  res.status(status).json({ error: expected ? err.message : 'Something went wrong. Please try again.', code: err.code });
 });
 
 // Railway sets PORT automatically.

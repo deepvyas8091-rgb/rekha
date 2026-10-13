@@ -61,6 +61,11 @@ CREATE TABLE IF NOT EXISTS daily_cache (
   text TEXT NOT NULL,
   PRIMARY KEY (profile_id, date, lang)
 );
+CREATE TABLE IF NOT EXISTS palm_cache (
+  hash TEXT PRIMARY KEY,
+  json TEXT NOT NULL,
+  at INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS ai_calls (
   at INTEGER NOT NULL,
   kind TEXT NOT NULL,
@@ -79,6 +84,12 @@ CREATE TABLE IF NOT EXISTS billing_events (
   body TEXT
 );
 `);
+
+// Columns added after first release: add them to databases created earlier.
+for (const [table, col, type] of [['ai_calls', 'cache_write', 'INTEGER DEFAULT 0'], ['ai_calls', 'cache_read', 'INTEGER DEFAULT 0']]) {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name);
+  if (!cols.includes(col)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${type}`);
+}
 
 /** A stored secret, created once on first start (so nobody has to type one in). */
 export function storedSecret(key) {
@@ -163,8 +174,22 @@ export const getDaily = (pid, date, lang) => one('SELECT text FROM daily_cache W
 export const putDaily = (pid, date, lang, text) => run('INSERT OR REPLACE INTO daily_cache VALUES (?, ?, ?, ?)', pid, date, lang, text);
 
 // ---- AI cost log
-export function logAi({ kind, model, tokensIn, tokensOut, costUsd }) {
-  run('INSERT INTO ai_calls VALUES (?, ?, ?, ?, ?, ?)', Date.now(), kind, model, tokensIn, tokensOut, costUsd);
+export function logAi({ kind, model, tokensIn, tokensOut, costUsd, cacheWrite = 0, cacheRead = 0 }) {
+  run('INSERT INTO ai_calls (at, kind, model, tokens_in, tokens_out, cost_usd, cache_write, cache_read) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+    Date.now(), kind, model, tokensIn, tokensOut, costUsd, cacheWrite, cacheRead);
+}
+const monthStartMs = () => Date.parse(`${new Date().toISOString().slice(0, 7)}-01T00:00:00Z`);
+/** USD spent on AI since the 1st of this month (UTC). */
+export const aiSpendThisMonth = () => one('SELECT COALESCE(SUM(cost_usd),0) usd FROM ai_calls WHERE at >= ?', monthStartMs()).usd;
+
+// ---- palm result cache (same photo never paid for twice, survives redeploys)
+export function getPalmCache(hash) {
+  const r = one('SELECT json FROM palm_cache WHERE hash = ?', hash);
+  return r ? JSON.parse(r.json) : null;
+}
+export function putPalmCache(hash, value) {
+  run('INSERT OR REPLACE INTO palm_cache VALUES (?, ?, ?)', hash, JSON.stringify(value), Date.now());
+  run('DELETE FROM palm_cache WHERE at < ?', Date.now() - 90 * 86400000); // keep 90 days
 }
 
 // ---- billing events (idempotency)
@@ -182,8 +207,9 @@ export function stats() {
     newUsers7d: one('SELECT COUNT(*) n FROM users WHERE created_at > ?', since(7)).n,
     profiles: one('SELECT COUNT(*) n FROM profiles').n,
     subscribers: all(`SELECT plan, COUNT(*) n FROM users WHERE plan != 'free' AND plan_status IN ('active','authenticated','cancelling') GROUP BY plan`),
-    aiThisMonth: one('SELECT COUNT(*) calls, COALESCE(SUM(cost_usd),0) usd FROM ai_calls WHERE at >= ?', monthStart),
-    aiByKind: all('SELECT kind, COUNT(*) calls, ROUND(SUM(cost_usd),4) usd FROM ai_calls WHERE at >= ? GROUP BY kind', monthStart),
+    aiThisMonth: one('SELECT COUNT(*) calls, COALESCE(SUM(cost_usd),0) usd, COALESCE(SUM(tokens_in),0) tokens_in, COALESCE(SUM(cache_read),0) cache_read, COALESCE(SUM(cache_write),0) cache_write FROM ai_calls WHERE at >= ?', monthStart),
+    aiByKind: all(`SELECT kind, COUNT(*) calls, ROUND(SUM(cost_usd),4) usd, ROUND(AVG(cost_usd),5) avg_usd,
+      SUM(cache_read) cache_read, SUM(tokens_in) tokens_in FROM ai_calls WHERE at >= ? GROUP BY kind ORDER BY usd DESC`, monthStart),
     signupsByDay: all(`SELECT date(created_at/1000,'unixepoch') day, COUNT(*) n FROM users WHERE created_at > ? GROUP BY day ORDER BY day`, since(30)),
     recentBilling: all('SELECT type, subscription_id, received_at FROM billing_events ORDER BY received_at DESC LIMIT 20'),
   };
