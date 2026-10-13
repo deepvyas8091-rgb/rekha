@@ -1,0 +1,24 @@
+{
+  "name": "rekha",
+  "version": "1.0.0",
+  "description": "AI palm, face and horoscope reader with Panchang, Choghadiya and good/bad time engine",
+  "main": "index.js",
+  "scripts": {
+    "start": "node --no-warnings src/server.js",
+    "test": "node --no-warnings --test test/*.test.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.133.0",
+    "astronomy-engine": "^2.1.19",
+    "express": "^5.3.0",
+    "google-auth-library": "^11.2.0",
+    "multer": "^2.4.0"
+  },
+  "type": "module",
+  "engines": {
+    "node": "22"
+  }
+}

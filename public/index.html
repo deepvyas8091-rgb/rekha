@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Rekha: Choghadiya, Kundli, Palm and Face Reading</title>
+  <meta name="description" content="Today's Choghadiya, Rahu Kaal and best times, your kundli, AI palm and face reading in your language. Free tools, family plans from ₹49 a month.">
+  <meta name="theme-color" content="#2b1840">
+  <link rel="manifest" href="/manifest.json">
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=Inter:wght@400;500;600&family=Noto+Sans+Devanagari:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="top">
+    <div class="brand"><span class="mark" aria-hidden="true">रे</span> Rekha</div>
+    <div class="top-actions">
+      <button id="placeBtn" class="place" aria-label="Change location">Set location</button>
+      <button id="planBtn" class="place premium">Premium</button>
+      <button id="accountBtn" class="place">Sign in</button>
+    </div>
+  </header>
+  <div id="profileBar" class="profile-bar" hidden>
+    <label>Reading for <select id="profileSel" aria-label="Profile"></select></label>
+  </div>
+  <div id="demoBanner" class="banner" hidden>Demo mode: AI text is sample text until an API key is added.</div>
+
+  <main>
+    <!-- TODAY -->
+    <section id="tab-today" class="tab active" aria-label="Today">
+      <div class="now card" id="nowCard"><div class="muted">Loading today…</div></div>
+      <div id="dailyCard"></div>
+      <div class="row-head"><h2>Best time for</h2><select id="activity" aria-label="Activity"></select></div>
+      <div id="bestWindows" class="windows"></div>
+      <h2>Avoid today</h2>
+      <div id="badTimes" class="list"></div>
+      <h2>Auspicious windows</h2>
+      <div id="goodTimes" class="list"></div>
+      <div class="row-head"><h2>Choghadiya</h2>
+        <div class="seg" role="tablist"><button data-cg="day" class="on">Day</button><button data-cg="night">Night</button></div></div>
+      <div id="choghadiya" class="timeline"></div>
+      <details class="card"><summary><h2 class="inline">Hora (planetary hours)</h2></summary><div id="hora" class="list compact"></div></details>
+    </section>
+
+    <!-- PANCHANG -->
+    <section id="tab-panchang" class="tab" aria-label="Panchang">
+      <div class="row-head"><h2>Panchang</h2><input type="date" id="panchDate" aria-label="Date"></div>
+      <div id="panchang" class="grid"></div>
+      <div class="row-head"><h2>Good days this month</h2><select id="calActivity" aria-label="Activity for calendar"></select></div>
+      <div id="calNote"></div>
+      <div id="calendar" class="cal"></div>
+    </section>
+
+    <!-- CHART / PROFILES -->
+    <section id="tab-chart" class="tab" aria-label="Kundli">
+      <div id="profilesCard"></div>
+      <form id="birthForm" class="card form">
+        <h2 id="birthTitle">Add birth details</h2>
+        <div class="two"><label>Name <input name="name" required maxlength="40"></label>
+        <label>Relation <select name="relation"><option value="self">Self</option><option value="spouse">Spouse</option><option value="child">Child</option><option value="parent">Parent</option><option value="other">Other</option></select></label></div>
+        <div class="two"><label>Date of birth <input name="date" type="date" required></label>
+        <label>Time of birth <input name="time" type="time" required></label></div>
+        <label>Birth place <select name="city" required></select></label>
+        <p class="hint">Exact birth time matters for the ascendant.</p>
+        <button class="primary">Save and show kundli</button>
+      </form>
+      <div id="chart"></div>
+    </section>
+
+    <!-- SCAN -->
+    <section id="tab-scan" class="tab" aria-label="Scan">
+      <div class="card">
+        <h2>Palm scan</h2>
+        <p class="hint">Dominant hand, palm open, fingers together, good light. The photo is read once and never stored.</p>
+        <input type="file" id="palmFile" accept="image/*" capture="environment">
+        <canvas id="palmCanvas" class="preview" hidden></canvas>
+        <div id="palmOut"></div>
+      </div>
+      <div class="card">
+        <h2>Face reading <span class="tag">optional</span></h2>
+        <p class="hint">Only facial proportions leave your phone, never the photo. We never comment on skin colour, looks, age or health.</p>
+        <label class="check"><input type="checkbox" id="faceConsent"> I agree to a face reading of my own face</label>
+        <input type="file" id="faceFile" accept="image/*" capture="user" disabled>
+        <canvas id="faceCanvas" class="preview" hidden></canvas>
+        <div id="faceOut"></div>
+      </div>
+    </section>
+
+    <!-- READING -->
+    <section id="tab-reading" class="tab" aria-label="Reading">
+      <div class="card">
+        <h2>Your combined reading</h2>
+        <p class="hint">Chart + palm + face together. Where they agree, the reading says so.</p>
+        <div class="two"><select id="lang" aria-label="Language"></select><button id="readBtn" class="primary">Create reading</button></div>
+        <div id="sources" class="chips"></div>
+      </div>
+      <article id="reading" class="card prose" hidden></article>
+      <div class="card" id="chatCard" hidden>
+        <h2>Ask Rekha</h2>
+        <div id="chatLog" class="chat"></div>
+        <form id="chatForm" class="two"><input id="chatQ" placeholder="What does my chart say about my career?" required maxlength="500"><button class="primary">Ask</button></form>
+        <p class="hint" id="chatLeft"></p>
+      </div>
+      <button id="shareBtn" class="ghost" hidden>Share my reading card</button>
+    </section>
+
+    <!-- MATCH -->
+    <section id="tab-match" class="tab" aria-label="Match">
+      <form id="matchForm" class="card form">
+        <h2>Kundli matching</h2>
+        <div id="matchPick" class="two" hidden><select id="matchA" aria-label="First person"></select><select id="matchB" aria-label="Second person"></select></div>
+        <div id="matchManual">
+          <fieldset><legend>Boy</legend>
+            <div class="two"><input name="bDate" type="date" aria-label="Boy date of birth"><input name="bTime" type="time" aria-label="Boy time of birth"></div>
+            <select name="bCity" aria-label="Boy birth place"></select></fieldset>
+          <fieldset><legend>Girl</legend>
+            <div class="two"><input name="gDate" type="date" aria-label="Girl date of birth"><input name="gTime" type="time" aria-label="Girl time of birth"></div>
+            <select name="gCity" aria-label="Girl birth place"></select></fieldset>
+        </div>
+        <button class="primary">Match (36 gun)</button>
+      </form>
+      <div id="matchOut"></div>
+    </section>
+  </main>
+
+  <nav class="tabs" aria-label="Sections">
+    <button data-tab="today" class="on">Today</button>
+    <button data-tab="panchang">Panchang</button>
+    <button data-tab="chart">Kundli</button>
+    <button data-tab="scan">Scan</button>
+    <button data-tab="reading">Reading</button>
+    <button data-tab="match">Match</button>
+  </nav>
+
+  <dialog id="placeDlg">
+    <form method="dialog" class="form">
+      <h2>Your location</h2>
+      <p class="hint">Good and bad times depend on your local sunrise.</p>
+      <select id="placeSel" aria-label="City"></select>
+      <button type="button" id="gpsBtn" class="ghost">Use my current location</button>
+      <button class="primary" value="ok">Save</button>
+    </form>
+  </dialog>
+
+  <dialog id="signinDlg">
+    <div class="form">
+      <h2>Sign in</h2>
+      <p class="hint">Save your family's profiles and unlock AI readings. We only use your name and email.</p>
+      <div id="gsiBtn"></div>
+      <form id="devForm" class="two" hidden><input name="email" type="email" placeholder="test@example.com" aria-label="Test email"><button class="ghost">Test sign-in</button></form>
+      <p class="hint" id="signinMsg"></p>
+      <button type="button" class="ghost" data-close>Not now</button>
+    </div>
+  </dialog>
+
+  <dialog id="plansDlg">
+    <div class="form">
+      <h2 id="plansTitle">Choose your plan</h2>
+      <p class="hint" id="plansWhy"></p>
+      <div id="plansList" class="plans"></div>
+      <p class="hint">Prices include GST. Cancel anytime; you keep access until the month you paid for ends.</p>
+      <button type="button" class="ghost" data-close>Maybe later</button>
+    </div>
+  </dialog>
+
+  <dialog id="accountDlg">
+    <div class="form" id="accountBody"></div>
+  </dialog>
+
+  <footer class="foot">For entertainment and self-reflection. Not medical, legal or financial advice. <a href="/privacy">Privacy</a> · <a href="/terms">Terms</a></footer>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

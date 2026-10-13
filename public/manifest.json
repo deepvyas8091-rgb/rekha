@@ -1,0 +1,9 @@
+{
+  "name": "Rekha: Palm, Face and Horoscope",
+  "short_name": "Rekha",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#fbf6ee",
+  "theme_color": "#2b1840",
+  "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+}

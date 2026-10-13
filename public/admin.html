@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Rekha owner dashboard</title>
+  <link rel="stylesheet" href="/styles.css">
+  <style>
+    body { padding-bottom: 24px; }
+    .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+    .tile { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px; }
+    .tile b { display: block; font-size: .75rem; text-transform: uppercase; color: var(--muted); letter-spacing: .05em; }
+    .tile span { font-family: var(--serif); font-size: 1.6rem; font-weight: 700; }
+  </style>
+</head>
+<body>
+  <header class="top"><div class="brand"><span class="mark">रे</span> Owner dashboard</div></header>
+  <main>
+    <form id="f" class="card two"><input id="tok" type="password" placeholder="Admin token" aria-label="Admin token"><button class="primary">Open</button></form>
+    <div id="out"></div>
+  </main>
+  <script>
+    const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    const inr = (n) => '₹' + Math.round(n).toLocaleString('en-IN');
+    async function load(tok) {
+      const r = await fetch('/api/admin/stats', { headers: { 'x-admin-token': tok } });
+      if (!r.ok) { document.getElementById('out').innerHTML = '<div class="card q-bad">Wrong token.</div>'; return; }
+      try { sessionStorage.setItem('rk_admin', tok); } catch {}
+      const s = await r.json();
+      const subs = Object.fromEntries(s.subscribers.map((x) => [x.plan, x.n]));
+      const totalSubs = s.subscribers.reduce((a, x) => a + x.n, 0);
+      document.getElementById('out').innerHTML = `
+        <div class="tiles">
+          <div class="tile"><b>Users</b><span>${s.users}</span></div>
+          <div class="tile"><b>New this week</b><span>${s.newUsers7d}</span></div>
+          <div class="tile"><b>Paying</b><span>${totalSubs}</span></div>
+          <div class="tile"><b>MRR (incl. GST)</b><span>${inr(s.mrrInr)}</span></div>
+          <div class="tile"><b>AI cost this month</b><span>${inr(s.aiCostInrThisMonth)}</span></div>
+          <div class="tile"><b>Conversion</b><span>${s.users ? ((totalSubs / s.users) * 100).toFixed(1) : 0}%</span></div>
+        </div>
+        <div class="card"><h2>Plans</h2><table><tr><th>Solo ₹49</th><th>Couple ₹99</th><th>Family ₹199</th></tr>
+          <tr><td>${subs.solo || 0}</td><td>${subs.couple || 0}</td><td>${subs.family || 0}</td></tr></table></div>
+        <div class="card"><h2>AI usage this month</h2><table><tr><th>Kind</th><th>Calls</th><th>USD</th></tr>
+          ${s.aiByKind.map((k) => `<tr><td>${esc(k.kind)}</td><td>${k.calls}</td><td>$${k.usd}</td></tr>`).join('') || '<tr><td colspan=3>None yet</td></tr>'}</table></div>
+        <div class="card"><h2>Sign-ups, last 30 days</h2><table><tr><th>Day</th><th>New users</th></tr>
+          ${s.signupsByDay.map((d) => `<tr><td>${esc(d.day)}</td><td>${d.n}</td></tr>`).join('') || '<tr><td colspan=2>None yet</td></tr>'}</table></div>
+        <div class="card"><h2>Recent payment events</h2><table><tr><th>Event</th><th>Subscription</th><th>When</th></tr>
+          ${s.recentBilling.map((e) => `<tr><td>${esc(e.type)}</td><td>${esc(e.subscription_id)}</td><td>${new Date(e.received_at).toLocaleString('en-IN')}</td></tr>`).join('') || '<tr><td colspan=3>None yet</td></tr>'}</table></div>`;
+    }
+    document.getElementById('f').addEventListener('submit', (e) => { e.preventDefault(); load(document.getElementById('tok').value); });
+    try { const t = sessionStorage.getItem('rk_admin'); if (t) load(t); } catch {}
+  </script>
+</body>
+</html>
