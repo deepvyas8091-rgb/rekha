@@ -15,7 +15,7 @@
   </style>
 </head>
 <body>
-  <header class="top"><div class="brand"><span class="mark">रे</span> Owner dashboard</div></header>
+  <header class="site-head"><div class="bar"><div class="brand"><span class="mark">रे</span> Owner dashboard</div></div></header>
   <main>
     <form id="f" class="card two"><input id="tok" type="password" placeholder="Admin token" aria-label="Admin token"><button class="primary">Open</button></form>
     <div id="out"></div>
@@ -41,6 +41,10 @@
           <div class="tile"><b>AI budget used</b><span>${s.ai.budgetUsedPct ?? '-'}${s.ai.budgetUsd ? '%' : ''}</span><small class="hint">${s.ai.budgetUsd ? `$${s.ai.spentUsd} of $${s.ai.budgetUsd}` : 'No cap set'}</small></div>
           <div class="tile"><b>Prompt cache hits</b><span>${s.ai.cacheHitPct}%</span><small class="hint">of input tokens, mode: ${esc(s.ai.cacheMode)}</small></div>
         </div>
+        <div class="card"><h2>Find a customer</h2>
+          <form id="findF" class="two"><input id="findQ" placeholder="Mobile, email or name"><button class="ghost">Search</button></form>
+          <div id="findOut"></div></div>
+        <div class="card" id="trCard"><h2>Languages</h2><p class="hint">Loading…</p></div>
         <div class="card"><h2>Plans</h2><table><tr><th>Solo ₹49</th><th>Couple ₹99</th><th>Family ₹199</th></tr>
           <tr><td>${subs.solo || 0}</td><td>${subs.couple || 0}</td><td>${subs.family || 0}</td></tr></table></div>
         <div class="card"><h2>AI usage this month</h2><table><tr><th>Kind</th><th>Calls</th><th>USD</th><th>Avg per call</th><th>Cached</th></tr>
@@ -49,7 +53,55 @@
           ${s.signupsByDay.map((d) => `<tr><td>${esc(d.day)}</td><td>${d.n}</td></tr>`).join('') || '<tr><td colspan=2>None yet</td></tr>'}</table></div>
         <div class="card"><h2>Recent payment events</h2><table><tr><th>Event</th><th>Subscription</th><th>When</th></tr>
           ${s.recentBilling.map((e) => `<tr><td>${esc(e.type)}</td><td>${esc(e.subscription_id)}</td><td>${new Date(e.received_at).toLocaleString('en-IN')}</td></tr>`).join('') || '<tr><td colspan=3>None yet</td></tr>'}</table></div>`;
+      loadLangs();
     }
+    // Languages: coverage per language, start the translation job, export/import for review.
+    async function loadLangs() {
+      const tok = sessionStorage.getItem('rk_admin');
+      const r = await fetch('/api/admin/translations', { headers: { 'x-admin-token': tok } });
+      if (!r.ok) return;
+      const d = await r.json(); const j = d.job;
+      const pct = (x) => Math.round(x * 100) + '%';
+      document.getElementById('trCard').innerHTML = `<h2>Languages</h2>
+        <p class="hint">A language goes live (indexed by Google, listed in the sitemap) at 95% of the interface and page text. Articles go live one by one as they are translated. Hindi and Gujarati interfaces are hand-written; everything else is machine-translated by Haiku once and stored.</p>
+        <p><strong>Translation job:</strong> ${j.running ? `running, ${esc(j.current || '')}` : j.finishedAt ? `last run ${new Date(j.finishedAt).toLocaleString('en-IN')}` : 'not run yet'} · ${j.done} done, ${j.failed} to retry${j.error ? ` · <span class="q-bad">${esc(j.error)}</span>` : ''}</p>
+        <div class="two"><button class="primary" id="trRun" ${j.running ? 'disabled' : ''}>Translate everything missing</button><button class="ghost" id="trRefresh">Refresh</button></div>
+        <div class="table-wrap"><table><tr><th>Language</th><th>Live</th><th>Interface</th><th>Pages</th><th>Names</th><th>Explanations</th><th>Review</th></tr>
+        ${d.langs.map((l) => `<tr><td>${esc(l.lang)}</td><td>${l.live ? '✓' : ''}</td><td>${pct(l.coverage.app)}</td><td>${pct(l.coverage.seo)}</td><td>${pct(l.coverage.data)}</td><td>${pct(l.coverage.guide)}</td>
+          <td><button class="ghost small" data-exp="${l.lang}">Export</button> <label class="ghost small" style="cursor:pointer">Import<input type="file" accept="application/json" data-imp="${l.lang}" hidden></label></td></tr>`).join('')}</table></div>
+        <p class="hint">Review: export a language, a native speaker edits the "text" values (any line whose text changes is marked as reviewed), then import the file. Reviewed lines are never overwritten by the machine translation.</p>
+        ${j.log.length ? `<details><summary>Job log</summary><pre style="white-space:pre-wrap">${esc(j.log.join('\n'))}</pre></details>` : ''}`;
+      document.getElementById('trRefresh').onclick = loadLangs;
+      document.getElementById('trRun').onclick = async () => {
+        await fetch('/api/admin/translate', { method: 'POST', headers: { 'content-type': 'application/json', 'x-admin-token': tok }, body: '{}' });
+        setTimeout(loadLangs, 1500);
+      };
+      document.querySelectorAll('[data-exp]').forEach((b) => b.onclick = async () => {
+        const res = await fetch('/api/admin/translations/' + b.dataset.exp, { headers: { 'x-admin-token': tok } });
+        const a = document.createElement('a'); a.href = URL.createObjectURL(await res.blob()); a.download = `rekha-${b.dataset.exp}.json`; a.click();
+      });
+      document.querySelectorAll('[data-imp]').forEach((inp) => inp.onchange = async () => {
+        const body = await inp.files[0].text();
+        const res = await fetch('/api/admin/translations/' + inp.dataset.imp, { method: 'POST', headers: { 'content-type': 'application/json', 'x-admin-token': tok }, body });
+        const out = await res.json(); alert(out.ok ? `Imported ${out.imported} reviewed lines.` : out.error); loadLangs();
+      });
+    }
+
+    document.addEventListener('submit', async (e) => {
+      if (e.target.id !== 'findF') return;
+      e.preventDefault();
+      const tok = sessionStorage.getItem('rk_admin');
+      const r = await fetch('/api/admin/users?q=' + encodeURIComponent(document.getElementById('findQ').value), { headers: { 'x-admin-token': tok } });
+      const users = await r.json();
+      const out = document.getElementById('findOut');
+      out.innerHTML = users.length ? `<table><tr><th>Name</th><th>Mobile</th><th>Email</th><th>Plan</th><th></th></tr>${users.map((u) => `<tr><td>${esc(u.name)}</td><td>${esc(u.phone || '')}</td><td>${esc(u.email || '')}</td><td>${esc(u.plan)} ${esc(u.plan_status || '')}</td><td><button class="ghost small" data-reset="${esc(u.id)}">Reset password</button></td></tr>`).join('')}</table>` : '<p class="hint">No match.</p>';
+      out.querySelectorAll('[data-reset]').forEach((b) => b.addEventListener('click', async () => {
+        if (!confirm('Only reset after confirming the request came from the registered mobile number (e.g. a WhatsApp message from that number). Continue?')) return;
+        const rr = await fetch('/api/admin/reset-password', { method: 'POST', headers: { 'content-type': 'application/json', 'x-admin-token': tok }, body: JSON.stringify({ userId: b.dataset.reset }) });
+        const d = await rr.json();
+        alert(d.ok ? `Temporary password for ${d.phone || 'this user'}: ${d.tempPassword}\n\nSend it to them privately and ask them to change it under Account.` : d.error);
+      }));
+    });
     document.getElementById('f').addEventListener('submit', (e) => { e.preventDefault(); load(document.getElementById('tok').value); });
     try { const t = sessionStorage.getItem('rk_admin'); if (t) load(t); } catch {}
   </script>

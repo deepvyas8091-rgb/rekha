@@ -1,6 +1,7 @@
 // AI layer: palm line extraction (vision), narrated reports, and follow-up chat.
-// Model split for cost: Sonnet for vision + full reports, Haiku for daily
-// messages, free teasers and chat. Without ANTHROPIC_API_KEY it runs in demo mode.
+// All AI calls use Claude Haiku 5.5 by default (lowest cost). Any of the three can be
+// switched in Railway Variables, e.g. MODEL_REPORT=claude-sonnet-5-5 for richer readings.
+// Without ANTHROPIC_API_KEY the app runs in demo mode.
 //
 // Cost controls in this file:
 // 1. Prompt caching, switched on only when it saves money (see cacheMode below).
@@ -13,8 +14,8 @@ import { LINE_SCHEMA } from '../readings/palm.js';
 import { FACE_BANNED_TOPICS } from '../readings/face.js';
 import { logAi, aiSpendThisMonth, getPalmCache, putPalmCache } from '../db.js';
 
-const MODEL_VISION = process.env.MODEL_VISION || 'claude-sonnet-5-5';
-const MODEL_REPORT = process.env.MODEL_REPORT || 'claude-sonnet-5-5';
+const MODEL_VISION = process.env.MODEL_VISION || 'claude-haiku-5-5';
+const MODEL_REPORT = process.env.MODEL_REPORT || 'claude-haiku-5-5';
 const MODEL_CHAT = process.env.MODEL_CHAT || 'claude-haiku-5-5';
 
 let client = process.env.ANTHROPIC_API_KEY ? new Anthropic() : null;
@@ -110,9 +111,8 @@ export function distressCheck(text = '') {
   if (!DISTRESS.test(text)) return null;
   return {
     distress: true,
-    message: 'It sounds like you are going through something really hard. A reading cannot help with this, but people can. '
-      + 'In India you can call Tele-MANAS on 14416 (free, 24x7). If you are elsewhere, please contact a local helpline or someone you trust. '
-      + 'If you are in immediate danger, call your local emergency number.',
+    // One literal so the translation catalogue picks it up as a whole.
+    message: 'It sounds like you are going through something really hard. A reading cannot help with this, but people can. In India you can call Tele-MANAS on 14416 (free, 24x7). If you are elsewhere, please contact a local helpline or someone you trust. If you are in immediate danger, call your local emergency number.',
   };
 }
 
@@ -151,18 +151,19 @@ const BRIEFS = {
   teaser: 'Write a short free reading in 150 to 200 words: three warm, specific sentences on who this person is from the chart, one line from the palm or face if present, and today\'s best window if given. End with one sentence on what the full reading adds (love, career, current phase, best days). No pressure, no fear.',
   full: 'Write a unified destiny profile. Sections: Who you are, Love and relationships, Career and money, Your current phase (use the dasha and transits), Your best days and times this week, One thing to work on. Where palm, face and chart agree, say so explicitly ("your palm and chart both point to..."). 450 to 650 words.',
   daily: 'Write today\'s personal guidance in 80 to 120 words: the day rating, the best window today and what to use it for, one window to avoid, and one encouraging line.',
+  horoscope: 'Write today\'s horoscope for people with this Moon sign (rashi), in 110 to 150 words. Start with the overall mood of the day, then one short line each on love, career and money matching the scores (1 = challenging, 5 = excellent), then one practical tip. Mention the lucky colour and number at the end. Do not use headings or lists. Never frighten the reader.',
   match: 'Explain this compatibility result in 250 to 350 words: strengths first, then doshas calmly with the note that an expert can review cancellation rules.',
 };
 // Output caps sized for the word targets, with room for Indic scripts.
-const MAX_OUT = { teaser: 600, full: 1500, daily: 400, match: 900 };
+const MAX_OUT = { teaser: 600, full: 1500, daily: 400, match: 900, horoscope: 500 };
 
 /** Turn deterministic facts into a narrated report in the user's language. */
 export async function narrate({ kind, facts, language = 'en', name, paid = false }) {
   const lang = LANGUAGES[language] || 'English';
   if (!client) return demoNarration(kind, facts);
   checkBudget(paid);
-  // Cheaper model for short, high-volume texts (daily guidance, free teaser).
-  const model = kind === 'daily' || kind === 'teaser' ? MODEL_CHAT : MODEL_REPORT;
+  // Short, high-volume texts use MODEL_CHAT; full readings and match explanations use MODEL_REPORT.
+  const model = ['daily', 'teaser', 'horoscope'].includes(kind) ? MODEL_CHAT : MODEL_REPORT;
   const cache = cacheMode(`narrate:${model}`);
   const res = await client.messages.create({
     model,
@@ -214,7 +215,8 @@ function demoPalm() {
       fate: { present: true, length: 'medium', depth: 'faint', confidence: 0.55 },
       sun: { present: false, confidence: 0.5 },
     },
-    headLifeJoinedAtStart: true, marriageLines: 1, marks: [],
+    headLifeJoinedAtStart: true, heartLineEndsUnder: 'between index and middle', marriageLines: 1, marks: ['triangle'],
+    mounts: { jupiter: 'prominent', saturn: 'normal', sun: 'normal', mercury: 'normal', venus: 'prominent', moon: 'flat', mars: 'normal' },
   };
 }
 
@@ -241,4 +243,47 @@ function demoNarration(kind, facts) {
   if (facts.today?.bestWindows?.[0]) lines.push(`- Best window today: ${facts.today.bestWindows[0].start} to ${facts.today.bestWindows[0].end}`);
   if (facts.gunMilan) lines.push(`- Gun milan ${facts.gunMilan.total}/36: ${facts.gunMilan.verdict}`);
   return `Demo ${kind} reading (add ANTHROPIC_API_KEY for the AI-written version):\n${[...new Set(lines.filter(Boolean))].slice(0, 16).join('\n')}`;
+}
+
+// ---- translation -----------------------------------------------------------------
+// Used once per string and language by the background translation job (src/i18n/jobs.js);
+// results are stored permanently, so this is a one-time cost, not a per-visit cost.
+const TRANSLATE_SYSTEM = `You translate the interface and articles of Rekha, a free app for Choghadiya, Rahu Kaal, Panchang, kundli, daily horoscope, and palm and face reading, used in India and Southeast Asia.
+
+How to translate:
+- Write natural, everyday language that a typical smartphone user reads easily. Not literary, not word for word.
+- Keep traditional Indian astrology terms in the form people of that language actually use. In Indian languages write them in the native script (e.g. Hindi: चौघड़िया, राहु काल, तिथि, नक्षत्र, कुंडली, दशा, साढ़े साती). In Thai, Vietnamese, Indonesian, Malay, Filipino and Chinese, keep the Sanskrit term in Latin letters or the usual local form, and add a short explanation in brackets only the first time it appears in an article.
+- Planet and sign names: use the standard names in that language (Hindi: सूर्य, चंद्र, मंगल, बुध, गुरु, शुक्र, शनि, राहु, केतु; मेष ... मीन).
+- Items ending in "(month)" are Hindu lunar month names: give only the month name in that language, without the word "month" or brackets.
+- Keep every {placeholder} exactly as it is, untranslated.
+- Keep the brand name "Rekha" in Latin letters.
+- Keep HTML tags and their attributes exactly; translate only the text between them.
+- Keep Markdown structure exactly: "## " and "### " headings, "- " and "1. " lists, "**bold**", "| tables |", and links [text](/path) with the path unchanged (translate only the link text).
+- Keep numbers, times (e.g. 06:42), ₹ prices and symbols such as › · ★ unchanged.
+- Never add warnings, notes or content that is not in the source. No em dashes.
+- Return exactly one translation per input item, in the same order.`;
+
+/** Translate a list of strings into one language. Returns an array of the same length (null where a translation failed checks). */
+export async function translateItems(items, language, { context = 'interface' } = {}) {
+  if (!client) throw new Error('Translation needs ANTHROPIC_API_KEY');
+  checkBudget(true);
+  const name = LANGUAGES[language] || language;
+  const cache = cacheMode('translate');
+  const res = await client.messages.create({
+    model: MODEL_CHAT,
+    max_tokens: context === 'article' ? 12000 : 8000,
+    system: [{ type: 'text', text: TRANSLATE_SYSTEM, ...(cache ? { cache_control: ephemeral } : {}) }],
+    tools: [{
+      name: 'submit', description: 'Submit the translations, one per input item, same order.',
+      input_schema: { type: 'object', properties: { translations: { type: 'array', items: { type: 'string' } } }, required: ['translations'] },
+    }],
+    tool_choice: { type: 'tool', name: 'submit' },
+    messages: [{ role: 'user', content: `Translate these ${context === 'article' ? 'article fields' : 'app interface strings'} from English into ${name}. Input (JSON array of ${items.length} items):\n${JSON.stringify(items)}` }],
+  });
+  track('translate', MODEL_CHAT, res.usage);
+  const out = res.content.find((c) => c.type === 'tool_use')?.input?.translations;
+  if (!Array.isArray(out) || out.length !== items.length) return items.map(() => null);
+  // Reject a translation that lost a placeholder, an HTML tag or a link target.
+  const marks = (s) => [...String(s).matchAll(/\{\w+\}|<\/?\w+|\]\(\/[^)]*\)/g)].map((m) => m[0]).sort().join('|');
+  return out.map((tr, i) => (typeof tr === 'string' && tr.trim() && marks(tr) === marks(items[i]) ? tr.trim() : null));
 }

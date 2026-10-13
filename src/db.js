@@ -86,10 +86,28 @@ CREATE TABLE IF NOT EXISTS billing_events (
 `);
 
 // Columns added after first release: add them to databases created earlier.
-for (const [table, col, type] of [['ai_calls', 'cache_write', 'INTEGER DEFAULT 0'], ['ai_calls', 'cache_read', 'INTEGER DEFAULT 0']]) {
+for (const [table, col, type] of [
+  ['ai_calls', 'cache_write', 'INTEGER DEFAULT 0'], ['ai_calls', 'cache_read', 'INTEGER DEFAULT 0'],
+  ['users', 'phone', 'TEXT'], ['users', 'password_hash', 'TEXT'], ['users', 'session_v', 'INTEGER DEFAULT 0'],
+  ['users', 'failed_logins', 'INTEGER DEFAULT 0'], ['users', 'locked_until', 'INTEGER'],
+]) {
   const cols = db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name);
   if (!cols.includes(col)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${type}`);
 }
+db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_phone ON users(phone)');
+db.exec(`CREATE TABLE IF NOT EXISTS horoscope_cache (
+  date TEXT NOT NULL, sign INTEGER NOT NULL, lang TEXT NOT NULL, text TEXT NOT NULL,
+  PRIMARY KEY (date, sign, lang)
+)`);
+
+// Translations. ns 'ui' holds short strings keyed by their English text; 'article:<slug>'
+// holds one row per article field, with a hash of the English so edits are re-translated.
+// origin: 'ai' (machine), 'human' (imported after native review; never overwritten by AI).
+db.exec(`CREATE TABLE IF NOT EXISTS translations (
+  lang TEXT NOT NULL, ns TEXT NOT NULL, src TEXT NOT NULL, text TEXT NOT NULL,
+  src_hash TEXT, origin TEXT NOT NULL DEFAULT 'ai', updated_at INTEGER NOT NULL,
+  PRIMARY KEY (lang, ns, src)
+)`);
 
 /** A stored secret, created once on first start (so nobody has to type one in). */
 export function storedSecret(key) {
@@ -117,6 +135,28 @@ export function upsertGoogleUser({ sub, email, name }) {
   return getUser(id);
 }
 export const getUser = (id) => one('SELECT * FROM users WHERE id = ?', id);
+export const getUserByPhone = (phone) => one('SELECT * FROM users WHERE phone = ?', phone);
+export function createPhoneUser({ phone, name, email, passwordHash }) {
+  const id = newId('u');
+  run('INSERT INTO users (id, phone, name, email, password_hash, created_at) VALUES (?, ?, ?, ?, ?, ?)', id, phone, name, email || null, passwordHash, Date.now());
+  return getUser(id);
+}
+export function setPassword(userId, passwordHash) {
+  run('UPDATE users SET password_hash = ?, session_v = COALESCE(session_v, 0) + 1, failed_logins = 0, locked_until = NULL WHERE id = ?', passwordHash, userId);
+}
+export function recordLoginFailure(userId, lockMs) {
+  run(`UPDATE users SET failed_logins = COALESCE(failed_logins, 0) + 1,
+       locked_until = CASE WHEN COALESCE(failed_logins, 0) + 1 >= 5 THEN ? ELSE locked_until END WHERE id = ?`, Date.now() + lockMs, userId);
+}
+export const clearLoginFailures = (userId) => run('UPDATE users SET failed_logins = 0, locked_until = NULL WHERE id = ?', userId);
+export const setPhone = (userId, phone) => run('UPDATE users SET phone = ? WHERE id = ?', phone, userId);
+export const findUsers = (q) => all(`SELECT id, name, email, phone, plan, plan_status, created_at FROM users
+  WHERE phone LIKE ? OR email LIKE ? OR name LIKE ? ORDER BY created_at DESC LIMIT 20`, `%${q}%`, `%${q}%`, `%${q}%`);
+export const getHoroscope = (date, sign, lang) => one('SELECT text FROM horoscope_cache WHERE date = ? AND sign = ? AND lang = ?', date, sign, lang)?.text;
+export function putHoroscope(date, sign, lang, text) {
+  run('INSERT OR REPLACE INTO horoscope_cache VALUES (?, ?, ?, ?)', date, sign, lang, text);
+  run('DELETE FROM horoscope_cache WHERE date < ?', new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10));
+}
 export const getUserBySubscription = (sid) => one('SELECT * FROM users WHERE subscription_id = ?', sid);
 export function setPlan(userId, fields) {
   const { plan, status, renewsAt, subscriptionId } = fields;
@@ -214,3 +254,20 @@ export function stats() {
     recentBilling: all('SELECT type, subscription_id, received_at FROM billing_events ORDER BY received_at DESC LIMIT 20'),
   };
 }
+
+// ---- translations ----------------------------------------------------------------
+export const getTranslations = (lang, ns) => all('SELECT src, text, src_hash, origin FROM translations WHERE lang = ? AND ns = ?', lang, ns);
+export const getTranslationsLike = (lang, nsPrefix) => all('SELECT ns, src, text, src_hash, origin FROM translations WHERE lang = ? AND ns LIKE ?', lang, `${nsPrefix}%`);
+/** rows: [{ src, text, srcHash, origin }]. Machine rows never replace human-reviewed ones. */
+export function putTranslations(lang, ns, rows) {
+  const stmt = db.prepare(`INSERT INTO translations (lang, ns, src, text, src_hash, origin, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT (lang, ns, src) DO UPDATE SET text = excluded.text, src_hash = excluded.src_hash, origin = excluded.origin, updated_at = excluded.updated_at
+    WHERE translations.origin != 'human' OR excluded.origin = 'human'`);
+  db.exec('BEGIN');
+  try {
+    for (const r of rows) stmt.run(lang, ns, r.src, r.text, r.srcHash ?? null, r.origin || 'ai', Date.now());
+    db.exec('COMMIT');
+  } catch (e) { db.exec('ROLLBACK'); throw e; }
+}
+export const translationCounts = () => all(`SELECT lang, CASE WHEN ns LIKE 'article:%' THEN 'articles' ELSE ns END AS ns, origin, COUNT(*) n
+  FROM translations GROUP BY 1, 2, 3 ORDER BY 1, 2`);

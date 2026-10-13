@@ -12,7 +12,10 @@ Web-first app (installable PWA) for India and Southeast Asia. It combines:
 - **Face reading**: only facial proportions leave the phone, never the photo. Mian Xiang face types and three courts. Hard guardrails: never skin colour, looks, age, ethnicity or health.
 - **Combined AI reading in 15 languages**, follow-up chat, share card for Instagram and WhatsApp status.
 - **Safety**: distress messages get a helpline response instead of a reading; no fear-based upsell; entertainment framing.
-- **Business layer**: Google sign-in, family profiles, Free / Solo ₹49 / Couple ₹99 / Family ₹199 monthly plans on Razorpay Subscriptions, fair-use limits, cancellation with paid-days grace, plan switching, account deletion, and an owner dashboard at `/admin`.
+- **Free daily rashi horoscope** for all 12 Moon signs, from real transits (Gochar), written once per sign per day and shared by everyone.
+- **SEO and AI-search layer**: 25 Insights articles (about 10,800 words), daily Choghadiya, Rahu Kaal and Panchang pages for 40 cities, 12 daily horoscope pages, FAQ and Article structured data, sitemap.xml, robots.txt open to AI crawlers, and llms.txt. About 165 public pages that refresh daily.
+- **Installable app (PWA)**: Android install prompt, iPhone "Add to Home Screen" guide, offline start, app shortcuts.
+- **Business layer**: mobile number + password sign-up (no OTP, scrypt hashing, lockout after 5 wrong tries, owner reset), Google sign-in, family profiles, Free / Solo ₹49 / Couple ₹99 / Family ₹199 monthly plans on Razorpay Subscriptions, fair-use limits, cancellation with paid-days grace, plan switching, account deletion, and an owner dashboard at `/admin`.
 
 **To launch without a developer, follow `LAUNCH.md`.**
 
@@ -34,7 +37,7 @@ Limits live in `src/plans.js` and reset on the 1st of each month.
 
 ```bash
 npm install
-npm test          # 26 tests: Drik Panchang reference checks, plans, payments, webhooks, AI cost controls
+npm test          # 39 tests: Panchang reference checks, plans, payments, sign-up, AI costs, and a crawl of every public page
 npm start         # http://localhost:3000
 ```
 
@@ -58,7 +61,11 @@ src/db.js          SQLite (Node built-in): users, profiles, usage, AI cost log, 
 src/auth.js        Google sign-in + signed session cookie
 src/billing.js     Razorpay subscribe / verify / cancel / webhook
 src/plans.js       Prices, profile counts and monthly limits
-public/admin.html  Owner dashboard (users, MRR, AI cost)
+public/admin.html  Owner dashboard (users, MRR, AI cost, customer search and password reset)
+public/guide.js    Plain-language explanations shown in the app
+src/engine/horoscope.js   Daily rashi horoscope from transits
+src/content/       Insights articles (Markdown in JS; the source of truth)
+src/seo/           Server-rendered public pages, sitemap, robots.txt, llms.txt
 railway.json       Railway build and start settings (attach a volume at /data)
 LAUNCH.md          Click-by-click launch guide
 docs/Rekha_Cost_Model.xlsx   Build and running cost model
@@ -76,12 +83,29 @@ Personal timings: add `&profile=<id>` to `/api/timings` or `/api/calendar` (paid
 
 Other: `POST /api/billing/webhook` (Razorpay, signature-checked), `GET /api/admin/stats` (header `x-admin-token`).
 
+## Languages
+
+15 languages, each under its own URL prefix (`/hi/`, `/gu/`, ... English at the root), with `hreflang`, per-script Google Fonts and a language menu on every page.
+
+- `src/i18n/languages.js`: the language list, locales and fonts.
+- `src/i18n/catalog.js`: reads every translatable string from the source at startup: `t('...')` / `N('...')` in `public/app.js`, `data-i18n` in `index.html`, the explanations in `guide.js`, `t(lang, '...')` / `tt('...')` in the page templates, and the names the engine sends (tithis, Choghadiya, palm meanings). Strings are keyed by their English text, so anything untranslated falls back to English.
+- `src/i18n/packs/hi.js`, `gu.js`, `glossary.js`: hand-written Hindi and Gujarati interface, page text and names.
+- `src/i18n/jobs.js`: background job that machine-translates whatever is missing (Haiku, stored in the `translations` table), plus export/import for native review. Reviewed lines are never overwritten.
+- `src/i18n/shell.js`: server-side translation of the app shell, hreflang tags, the language menu and language-prefixed links.
+- Client: `public/i18n.js` loads `/api/i18n/:lang` and provides `t()` (interface) and `d()` (server values).
+
+New text in the app: wrap it in `t('...')`. It is picked up on the next start and translated by the job; add it to `hi.js` and `gu.js` by hand for those two (a test fails if they are incomplete).
+
+## Adding an Insights article
+
+Add an object to one of the files in `src/content/` (slug, title under 70 characters, description of 90 to 170 characters, h1, category, tool link, related slugs, body in simple Markdown, and at least two FAQs). It appears in /insights, the sitemap, llms.txt and the footer automatically. `npm test` checks lengths, broken links and structured data.
+
 ## AI cost controls
 
 | Control | What it does |
 |---|---|
 | Rules engine first | Timings, panchang, kundli, matching scores and face measurements never call the AI. |
-| Cheaper model where it fits | Haiku 5.5 for daily guidance, free teaser readings and chat; Sonnet 5.5 only for palm photos, full readings and match explanations. Set `MODEL_REPORT` / `MODEL_VISION` / `MODEL_CHAT` to change. |
+| Cheapest model | Claude Haiku 5.5 for every AI call: palm photos, readings, daily guidance and chat. Set `MODEL_VISION` / `MODEL_REPORT` / `MODEL_CHAT` (e.g. `claude-sonnet-5-5`) in Railway to upgrade any one of them. |
 | Saved readings reused | An unchanged reading is shown again free (no API call, no allowance used). |
 | Palm results cached | The same photo is never sent twice (stored 90 days in the database). |
 | Daily guidance cached | Written once per profile per day per language. |
@@ -90,7 +114,7 @@ Other: `POST /api/billing/webhook` (Razorpay, signature-checked), `GET /api/admi
 | Plan limits | Per-profile monthly caps in `src/plans.js`. |
 | Exact cost log | Every call is logged with cache reads and writes; see `/admin`. |
 
-Prompt caching is only applied when it saves money. A cache write costs 1.25x the normal input price and a read 0.05x (Sonnet) or 0.1x (Haiku), so caching only pays when the same prompt repeats within 5 minutes. The reading instructions (~260 tokens) are below Anthropic's 512-token minimum and are not cached; padding them to qualify would cost more than it saves at launch traffic.
+Prompt caching is only applied when it saves money. A cache write costs 1.25x the normal input price and a read 0.1x on Haiku 5.5 (0.05x on Sonnet 5.5), so caching only pays when the same prompt repeats within 5 minutes. The reading instructions (~260 tokens) are below Anthropic's 512-token minimum and are not cached; padding them to qualify would cost more than it saves at launch traffic.
 
 ## Accuracy
 

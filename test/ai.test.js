@@ -38,6 +38,7 @@ test('cost math includes cache writes (1.25x) and cache reads (0.05x Sonnet, 0.1
 
 test('palm: no cache write when traffic is quiet; cached prefix once calls cluster', async () => {
   await reader.extractPalmLines('photoA', 'image/jpeg');
+  assert.equal(calls[0].model, 'claude-haiku-5-5', 'palm scans default to Haiku 5.5');
   assert.equal(calls[0].tools[0].cache_control, undefined, 'first call in a quiet period must not pay the 1.25x write');
   await reader.extractPalmLines('photoB', 'image/jpeg');
   assert.deepEqual(calls[1].tools[0].cache_control, { type: 'ephemeral' }, 'second call within 5 minutes caches the shared prefix');
@@ -67,9 +68,7 @@ test('readings: one shared system prompt across languages and reading types (one
   await reader.narrate({ kind: 'daily', facts: { d: 4 }, language: 'gu' });
   const texts = calls.map((c) => c.system[0].text);
   assert.equal(new Set(texts).size, 1);
-  assert.equal(calls[0].model, 'claude-sonnet-5-5');
-  assert.equal(calls[2].model, 'claude-haiku-5-5', 'free teaser uses the cheaper model');
-  assert.equal(calls[3].model, 'claude-haiku-5-5', 'daily guidance uses the cheaper model');
+  assert.ok(calls.every((c) => c.model === 'claude-haiku-5-5'), 'every reading type defaults to Haiku 5.5');
   assert.match(calls[1].messages[0].content, /Write in Hindi/);
 });
 

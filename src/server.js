@@ -1,5 +1,6 @@
 // Rekha API + web app. Run: npm start  (PORT defaults to 3000)
 import express from 'express';
+import compression from 'compression';
 import crypto from 'node:crypto';
 import multer from 'multer';
 import path from 'node:path';
@@ -11,15 +12,47 @@ import { palmGeometry, interpretGeometry, interpretLines } from './readings/palm
 import { faceGeometry, interpretFace } from './readings/face.js';
 import { extractPalmLines, narrate, ask, distressCheck, demoMode, LANGUAGES } from './ai/reader.js';
 import { CITIES } from './data/cities.js';
+import { dailyHoroscope, horoscopeText } from './engine/horoscope.js';
 import { PLANS, planOf, planKey, monthKey, publicPlans } from './plans.js';
 import * as store from './db.js';
-import { sessionMiddleware, requireUser, authRoutes } from './auth.js';
+import { sessionMiddleware, requireUser, authRoutes, hashPassword } from './auth.js';
 import { billingRoutes, billingJsonRoutes, billingConfigured } from './billing.js';
 import { devLoginEnabled, isTest } from './env.js';
+import { seoRoutes, ARTICLES, clearPageCache } from './seo/routes.js';
+import { t as tr, isLang, LANG_CODES, localePath, languageNames, packFor, readyLangs, coverage, invalidate } from './i18n/index.js';
+import { renderShell } from './i18n/shell.js';
+import { runTranslations, status as translateStatus, exportLang, importLang } from './i18n/jobs.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 app.set('trust proxy', 1);
+app.disable('x-powered-by');
+app.use(compression());
+
+// One address for everything: when PUBLIC_URL is set (https://rekha.io), visits to any other
+// host (the railway.app address, www.) are sent there with a permanent redirect. The API is
+// left alone so Railway's health check and Razorpay's webhook keep working on any host.
+const canonicalHost = (() => { try { return process.env.PUBLIC_URL ? new URL(process.env.PUBLIC_URL).host : null; } catch { return null; } })();
+app.use((req, res, next) => {
+  if (!canonicalHost || req.path.startsWith('/api/') || process.env.CANONICAL_REDIRECT === '0') return next();
+  if (req.get('host') !== canonicalHost && (req.method === 'GET' || req.method === 'HEAD')) {
+    return res.redirect(301, `${process.env.PUBLIC_URL.replace(/\/$/, '')}${req.originalUrl}`);
+  }
+  next();
+});
+
+// Language prefix: /hi/insights is served by the /insights handler with req.lang = 'hi'.
+// English lives at the root; /en/... redirects there so each page has one address.
+app.use((req, res, next) => {
+  const m = req.path.match(/^\/([a-z]{2})(?=\/|$)/);
+  req.lang = 'en';
+  if (!m || !isLang(m[1])) return next();
+  if (m[1] === 'en') return res.redirect(301, req.originalUrl.slice(3) || '/');
+  req.lang = m[1];
+  req.url = req.url.slice(3) || '/';
+  if (!req.url.startsWith('/')) req.url = `/${req.url}`;
+  next();
+});
 billingRoutes(app); // raw-body webhook must come before express.json()
 app.use(express.json({ limit: '2mb' }));
 app.use(sessionMiddleware);
@@ -88,7 +121,7 @@ function natalOf(birth) {
 
 // ---- session + catalogue --------------------------------------------------
 app.get('/api/meta', (_req, res) => res.json({
-  demoMode, languages: LANGUAGES, activities: ACTIVITIES, cities: CITIES, plans: publicPlans(),
+  demoMode, languages: LANGUAGES, languageNames: languageNames(), readyLangs: readyLangs(), activities: ACTIVITIES, cities: CITIES, plans: publicPlans(),
   googleClientId: process.env.GOOGLE_CLIENT_ID || null, devLogin: devLoginEnabled,
   billing: billingConfigured(),
 }));
@@ -99,7 +132,7 @@ app.get('/api/me', (req, res) => {
   const plan = planOf(u);
   const used = store.usageFor(u.id, monthKey());
   res.json({
-    user: { id: u.id, name: u.name, email: u.email },
+    user: { id: u.id, name: u.name, email: u.email, phone: u.phone, hasPassword: !!u.password_hash, hasGoogle: !!u.google_sub },
     plan: { key: planKey(u), name: plan.name, profiles: plan.profiles, status: u.plan_status, renewsAt: u.plan_renews_at, personal: plan.personal },
     allowance: Object.fromEntries(Object.keys(plan.limits).map((k) => [k, { used: used[k] || 0, max: quotaLimit(u, k) }])),
     profiles: store.listProfiles(u.id).map((p, i) => ({ id: p.id, name: p.name, relation: p.relation, birth: p.birth, natal: p.natal, hasPalm: !!p.palm, hasFace: !!p.face, hasReading: !!p.reading, locked: i >= plan.profiles })),
@@ -113,6 +146,14 @@ app.delete('/api/me', requireUser, wrap(async (req, res) => {
   res.setHeader('Set-Cookie', 'rk_sess=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0');
   res.json({ ok: true });
 }));
+
+// Translations for the browser: interface, explanations and engine names (keyed by English).
+app.get('/api/i18n/:lang', (req, res) => {
+  if (!isLang(req.params.lang)) return res.status(404).json({ error: 'Unknown language' });
+  const pack = packFor(req.params.lang);
+  res.set('Cache-Control', req.query.v === pack.version ? 'public, max-age=86400' : 'public, max-age=300');
+  res.json(pack);
+});
 
 // ---- profiles ---------------------------------------------------------------
 app.post('/api/profiles', requireUser, wrap(async (req, res) => {
@@ -195,6 +236,34 @@ app.get('/api/daily/:profileId', requireUser, limit(60), wrap(async (req, res) =
   res.json({ date, text });
 }));
 
+// ---- free daily rashi horoscope ------------------------------------------------
+// One text per sign per day per language, shared by every visitor (12 AI calls a day
+// per language at most). Falls back to the rules-based text if AI is off or paused.
+const inflight = new Map();
+export async function horoscopeFor(sign, lang = 'en', date = today('Asia/Kolkata')) {
+  const h = dailyHoroscope(date, sign);
+  const cached = store.getHoroscope(date, sign, lang);
+  if (cached) return { ...h, text: cached };
+  const key = `${date}:${sign}:${lang}`;
+  if (!inflight.has(key)) {
+    inflight.set(key, (async () => {
+      try {
+        const facts = { sign: `${h.sign.sa} (${h.sign.en})`, moonToday: h.moonTransit, scores: h.scores, lucky: h.lucky, highlights: h.highlights, sadeSati: h.sadeSati, retrogrades: h.retrogrades };
+        const text = demoMode ? horoscopeText(h) : await narrate({ kind: 'horoscope', facts, language: lang });
+        if (!demoMode) store.putHoroscope(date, sign, lang, text);
+        return text;
+      } catch { return horoscopeText(h); } finally { setTimeout(() => inflight.delete(key), 1000); }
+    })());
+  }
+  return { ...h, text: await inflight.get(key) };
+}
+app.get('/api/horoscope', wrap(async (req, res) => {
+  const sign = Number(req.query.sign);
+  if (!Number.isInteger(sign) || sign < 0 || sign > 11) throw httpError(400, 'sign must be 0 to 11');
+  const lang = LANGUAGES[req.query.lang] ? req.query.lang : 'en';
+  res.json(await horoscopeFor(sign, lang));
+}));
+
 // ---- birth chart and matching -----------------------------------------------
 app.post('/api/profile', wrap(async (req, res) => {
   res.json(birthProfile(checkBirth(req.body.birth)));
@@ -233,7 +302,7 @@ app.post('/api/palm', limit(20), upload.single('photo'), wrap(async (req, res) =
     lines = { raw, ...interpretLines(raw) };
   }
   if (!geometry && !lines) throw httpError(400, 'Send landmarks, a photo, or both');
-  const palm = { handType: geometry?.handType, facts: [...(geometry?.facts || []), ...(lines?.facts || [])], marriageLines: lines?.raw?.marriageLines };
+  const palm = { handType: geometry?.handType, facts: [...(geometry?.facts || []), ...(lines?.facts || [])], notVisible: lines?.notVisible || [], marriageLines: lines?.raw?.marriageLines };
   if (req.user && req.body.profileId && lines && !lines.warning) {
     usableProfile(req.user, req.body.profileId);
     store.updateProfile(req.user.id, req.body.profileId, { palm });
@@ -307,7 +376,7 @@ app.post('/api/ask', requireUser, limit(40), wrap(async (req, res) => {
   const { question, history, language, profileId } = req.body;
   if (!question) throw httpError(400, 'Please type a question');
   const d = distressCheck(question);
-  if (d) return res.json({ answer: d.message, support: true });
+  if (d) return res.json({ answer: tr(language, d.message), support: true });
   const prof = usableProfile(req.user, profileId);
   const record = checkQuota(req.user, 'chat');
   // factsFor(prof) without a location is identical across questions, so follow-ups hit the prompt cache.
@@ -317,8 +386,28 @@ app.post('/api/ask', requireUser, limit(40), wrap(async (req, res) => {
 }));
 
 // ---- owner dashboard -------------------------------------------------------------
+function isAdmin(req) {
+  const t = req.get('x-admin-token') || '';
+  const want = process.env.ADMIN_TOKEN || '';
+  return want.length > 0 && t.length === want.length && crypto.timingSafeEqual(Buffer.from(t), Buffer.from(want));
+}
+// Find a customer by phone, email or name (for support).
+app.get('/api/admin/users', (req, res) => {
+  if (!isAdmin(req)) return res.status(403).json({ error: 'forbidden' });
+  res.json(store.findUsers(String(req.query.q || '').slice(0, 60)));
+});
+// Forgotten password: the owner sets a temporary password after confirming the caller,
+// e.g. by WhatsApp from the registered number. All the user's devices are signed out.
+app.post('/api/admin/reset-password', (req, res) => {
+  if (!isAdmin(req)) return res.status(403).json({ error: 'forbidden' });
+  const user = store.getUser(String(req.body.userId || ''));
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  const temp = crypto.randomBytes(6).toString('base64url').replace(/[-_]/g, 'x');
+  store.setPassword(user.id, hashPassword(temp));
+  res.json({ ok: true, tempPassword: temp, phone: user.phone });
+});
 app.get('/api/admin/stats', (req, res) => {
-  if (!process.env.ADMIN_TOKEN || req.get('x-admin-token') !== process.env.ADMIN_TOKEN) return res.status(403).json({ error: 'forbidden' });
+  if (!isAdmin(req)) return res.status(403).json({ error: 'forbidden' });
   const s = store.stats();
   const mrr = s.subscribers.reduce((sum, r) => sum + (PLANS[r.plan]?.priceInr || 0) * r.n, 0);
   const fx = +process.env.FX_INR || 88;
@@ -334,7 +423,56 @@ app.get('/api/admin/stats', (req, res) => {
   });
 });
 
-app.use(express.static(path.join(__dirname, '..', 'public'), { extensions: ['html'] }));
+// ---- translations (owner) ---------------------------------------------------------
+// Start or check the background translation job; export/import for native-speaker review.
+app.get('/api/admin/translations', (req, res) => {
+  if (!isAdmin(req)) return res.status(403).json({ error: 'forbidden' });
+  const langs = LANG_CODES.filter((l) => l !== 'en').map((l) => ({ lang: l, live: readyLangs().includes(l), coverage: coverage(l) }));
+  res.json({ job: translateStatus, langs, counts: store.translationCounts() });
+});
+app.post('/api/admin/translate', (req, res) => {
+  if (!isAdmin(req)) return res.status(403).json({ error: 'forbidden' });
+  const langs = Array.isArray(req.body.langs) && req.body.langs.length ? req.body.langs.filter(isLang) : undefined;
+  runTranslations({ langs, articles: ARTICLES, scope: req.body.scope }).then(() => { clearPageCache(); });
+  res.json({ started: !translateStatus.error, job: translateStatus });
+});
+app.get('/api/admin/translations/:lang', (req, res) => {
+  if (!isAdmin(req)) return res.status(403).json({ error: 'forbidden' });
+  if (!isLang(req.params.lang)) return res.status(404).json({ error: 'Unknown language' });
+  res.set('Content-Disposition', `attachment; filename="rekha-${req.params.lang}.json"`);
+  res.json(exportLang(req.params.lang, ARTICLES));
+});
+app.post('/api/admin/translations/:lang', express.json({ limit: '10mb' }), (req, res) => {
+  if (!isAdmin(req)) return res.status(403).json({ error: 'forbidden' });
+  if (!isLang(req.params.lang) || req.params.lang === 'en') return res.status(400).json({ error: 'Unknown language' });
+  const n = importLang(req.params.lang, req.body, ARTICLES);
+  clearPageCache();
+  res.json({ ok: true, imported: n });
+});
+
+// The app shell, translated on the server so text, title and links are right before any script runs.
+// A returning visitor who chose a language gets it at the root address too.
+app.get(['/', '/index.html'], (req, res) => {
+  if (req.originalUrl.startsWith('/index.html')) return res.redirect(301, '/');
+  const pref = /(?:^|;\s*)rk_lang=([a-z]{2})/.exec(req.get('cookie') || '')?.[1];
+  if (req.lang === 'en' && pref && pref !== 'en' && isLang(pref) && req.originalUrl === '/') return res.redirect(302, localePath(pref, '/'));
+  const base = (process.env.PUBLIC_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
+  res.set('Cache-Control', 'no-cache');
+  res.type('html').send(renderShell(req.lang, base));
+});
+
+app.locals.horoscopeFor = horoscopeFor;
+seoRoutes(app);
+app.use(express.static(path.join(__dirname, '..', 'public'), { extensions: ['html'], index: false }));
+
+// Friendly 404 for pages; JSON for the API.
+app.use((req, res, next) => {
+  if (req.path.startsWith('/api/') || req.method !== 'GET') return next();
+  const lang = req.lang || 'en';
+  const tt = (x) => tr(lang, x);
+  const link = (p, label) => `<li><a href="${localePath(lang, p)}">${tt(label)}</a></li>`;
+  res.status(404).type('html').send(`<!doctype html><html lang="${lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${tt('Page not found')}: Rekha</title><meta name="robots" content="noindex"><link rel="stylesheet" href="/styles.css"></head><body><main class="article"><div class="page-head"><h1>${tt('Page not found')}</h1><p class="lede">${tt('That page does not exist. Try one of these:')}</p></div><ul class="link-grid">${link('/', "Today's good and bad times")}${link('/choghadiya', 'Choghadiya today')}${link('/panchang', 'Panchang today')}${link('/horoscope', 'Daily horoscope')}${link('/insights', 'Insights')}</ul></main></body></html>`);
+});
 
 app.use((err, _req, res, _next) => {
   const status = err.status || 500;
@@ -353,6 +491,13 @@ if (!isTest) {
     const missing = ['ANTHROPIC_API_KEY', 'GOOGLE_CLIENT_ID', 'RAZORPAY_KEY_ID', 'RAZORPAY_KEY_SECRET', 'RAZORPAY_WEBHOOK_SECRET', 'RZP_PLAN_SOLO', 'RZP_PLAN_COUPLE', 'RZP_PLAN_FAMILY', 'ADMIN_TOKEN']
       .filter((k) => !process.env[k]);
     if (missing.length) console.log(`Not set yet (features stay off until added): ${missing.join(', ')}`);
+    // Translate whatever is missing, a minute after start (only new strings after the first run).
+    if (!demoMode && process.env.TRANSLATE_AUTO !== '0') {
+      setTimeout(() => runTranslations({ articles: ARTICLES }).then((s) => {
+        clearPageCache();
+        console.log(`Translations: ${s.done} added, ${s.failed} to retry${s.error ? `, stopped: ${s.error}` : ''}. Live languages: ${readyLangs().join(', ')}`);
+      }), 60000).unref();
+    }
   });
   // Railway sends SIGTERM before each redeploy: finish requests, then close the database cleanly.
   process.on('SIGTERM', () => {

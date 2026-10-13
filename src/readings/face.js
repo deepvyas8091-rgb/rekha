@@ -31,39 +31,54 @@ export function faceGeometry(lm) {
   };
 }
 
+const ELEMENT = {
+  Wood: 'Growth-minded and principled; keeps learning and building.',
+  Fire: 'Passionate and quick-thinking; brings energy to a room.',
+  Metal: 'Decisive and disciplined; values fairness and structure.',
+  Water: 'Adaptable and sociable; good at reading people.',
+  Earth: 'Balanced and reliable; people trust your judgement.',
+};
+
 export function interpretFace(g) {
   const facts = [];
   // Face shape mapped to Chinese five-element face types (Mian Xiang).
   let shape;
-  if (g.widthToHeight < 0.74) shape = ['Long', 'Wood', 'Growth-minded and principled; keeps learning and building.']; // TUNE
-  else if (g.jawToCheek < 0.78) shape = ['Heart', 'Fire', 'Passionate and quick-thinking; brings energy to a room.'];
-  else if (g.widthToHeight > 0.86 && g.jawToCheek > 0.9) shape = ['Square', 'Metal', 'Decisive and disciplined; values fairness and structure.'];
-  else if (g.widthToHeight > 0.86) shape = ['Round', 'Water', 'Adaptable and sociable; good at reading people.'];
-  else shape = ['Oval', 'Earth', 'Balanced and reliable; people trust your judgement.'];
-  facts.push({ source: 'face shape', fact: `${shape[0]} face (${shape[1]} element)`, meaning: shape[2] });
+  if (g.widthToHeight < 0.74) shape = ['Long', 'Wood']; // TUNE
+  else if (g.jawToCheek < 0.78) shape = ['Heart-shaped', 'Fire'];
+  else if (g.widthToHeight > 0.86 && g.jawToCheek > 0.9) shape = ['Square', 'Metal'];
+  else if (g.widthToHeight > 0.86) shape = ['Round', 'Water'];
+  else shape = ['Oval', 'Earth'];
+  facts.push({ group: 'Face type', source: 'Overall face shape', fact: `${shape[0]} face, ${shape[1]} element`, meaning: ELEMENT[shape[1]] });
 
   // Three courts (San Ting): upper = early life and intellect, middle = drive
   // and career years, lower = later life and stability.
   const courts = { upper: g.upperCourt, middle: g.middleCourt, lower: g.lowerCourt };
+  const spread = Math.max(...Object.values(courts)) - Math.min(...Object.values(courts));
   const top = Object.entries(courts).sort((a, b) => b[1] - a[1])[0][0];
   const COURT = {
-    upper: 'Upper court strongest: thoughtful planner; strong early learning and ideas.',
-    middle: 'Middle court strongest: driven and ambitious; peak effort years bring results.',
-    lower: 'Lower court strongest: patient builder; stability and comfort grow with time.',
+    upper: ['Upper court (hairline to eyebrows) is strongest', 'Thoughtful planner; strong early learning and ideas. Traditionally linked to the years up to about 30.'],
+    middle: ['Middle court (eyebrows to nose tip) is strongest', 'Driven and ambitious; effort in the working years brings results. Traditionally linked to about 31 to 50.'],
+    lower: ['Lower court (nose tip to chin) is strongest', 'Patient builder; stability and comfort grow with time. Traditionally linked to 51 and later.'],
   };
-  if (Math.max(...Object.values(courts)) - Math.min(...Object.values(courts)) < 0.04) {
-    facts.push({ source: 'three courts', fact: 'Balanced three courts', meaning: 'Steady fortune across all phases of life.' });
-  } else facts.push({ source: 'three courts', fact: `${top} court strongest`, meaning: COURT[top] });
+  if (spread < 0.04) facts.push({ group: 'Three courts (San Ting)', source: 'Forehead, mid-face and lower face', fact: 'Evenly balanced', meaning: 'Steady fortune across all phases of life.' });
+  else facts.push({ group: 'Three courts (San Ting)', source: 'Forehead, mid-face and lower face', fact: COURT[top][0], meaning: COURT[top][1] });
 
-  if (g.eyeSpacing > 1.1) facts.push({ source: 'eyes', fact: 'Wide-set eyes', meaning: 'Big-picture thinker; tolerant and open to new views.' });
-  else if (g.eyeSpacing < 0.9) facts.push({ source: 'eyes', fact: 'Close-set eyes', meaning: 'Focused and detail-oriented.' });
+  if (g.eyeSpacing > 1.1) facts.push({ group: 'Features', source: 'Eyes', fact: 'Wide-set', meaning: 'Big-picture thinker; tolerant and open to new views.' });
+  else if (g.eyeSpacing < 0.9) facts.push({ group: 'Features', source: 'Eyes', fact: 'Close-set', meaning: 'Focused and detail-oriented.' });
+  else facts.push({ group: 'Features', source: 'Eyes', fact: 'Evenly spaced', meaning: 'Balances detail with the bigger picture.' });
 
-  if (g.browLength > 1.25) facts.push({ source: 'eyebrows', fact: 'Long eyebrows', meaning: 'Loyal to friends and family; values long relationships.' });
+  if (g.browLength > 1.25) facts.push({ group: 'Features', source: 'Eyebrows', fact: 'Long', meaning: 'Loyal to friends and family; values long relationships.' });
+  else facts.push({ group: 'Features', source: 'Eyebrows', fact: 'Medium length', meaning: 'Selective with close friends; quality over quantity.' });
 
-  if (g.noseWidth > 0.27) facts.push({ source: 'nose', fact: 'Broad nose bridge area', meaning: 'Traditionally linked with good money management.' });
+  if (g.noseWidth > 0.27) facts.push({ group: 'Features', source: 'Nose', fact: 'Broad base', meaning: 'Traditionally linked with good money management and saving.' });
+  else facts.push({ group: 'Features', source: 'Nose', fact: 'Narrow base', meaning: 'Traditionally linked with careful, considered spending.' });
 
-  if (g.lipFullness > 0.12) facts.push({ source: 'lips', fact: 'Fuller lips', meaning: 'Generous and expressive.' });
-  else if (g.lipFullness < 0.08) facts.push({ source: 'lips', fact: 'Thinner lips', meaning: 'Measured speaker; chooses words with care.' });
+  if (g.lipFullness > 0.12) facts.push({ group: 'Features', source: 'Lips', fact: 'Fuller', meaning: 'Generous and expressive.' });
+  else if (g.lipFullness < 0.08) facts.push({ group: 'Features', source: 'Lips', fact: 'Thinner', meaning: 'Measured speaker; chooses words with care.' });
+  else facts.push({ group: 'Features', source: 'Lips', fact: 'Medium', meaning: 'Speaks openly but thinks first.' });
+
+  if (g.jawToCheek > 0.9) facts.push({ group: 'Features', source: 'Jaw and chin', fact: 'Strong, wide jaw', meaning: 'Determined and steady; finishes what is started.' });
+  else if (g.jawToCheek < 0.8) facts.push({ group: 'Features', source: 'Jaw and chin', fact: 'Tapered jaw', meaning: 'Diplomatic and flexible; adapts to people easily.' });
 
   return { faceType: shape[1], facts };
 }
