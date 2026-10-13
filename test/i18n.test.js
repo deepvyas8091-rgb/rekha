@@ -158,3 +158,11 @@ test('canonical host: other hosts redirect to PUBLIC_URL, the API does not', asy
   s2.close();
   delete process.env.PUBLIC_URL;
 });
+
+test('behind Cloudflare, rate limits use the visitor IP, not Cloudflare\'s', async () => {
+  const { clientIp } = await import('../src/env.js');
+  const req = (h) => ({ ip: '172.64.0.1', get: (k) => h[k.toLowerCase()] });
+  assert.equal(clientIp(req({ 'cf-connecting-ip': '49.36.1.2', 'cf-ray': 'abc-DXB' })), '49.36.1.2');
+  assert.equal(clientIp(req({ 'cf-connecting-ip': '49.36.1.2' })), '172.64.0.1', 'header ignored without CF-Ray');
+  assert.equal(clientIp(req({ 'cf-connecting-ip': 'x; drop', 'cf-ray': 'a' })), '172.64.0.1');
+});

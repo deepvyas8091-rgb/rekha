@@ -7,9 +7,15 @@ import crypto from 'node:crypto';
 import { isProd, isTest } from './env.js';
 
 function dbFile() {
-  if (process.env.DB_PATH) return process.env.DB_PATH;
+  const vol = process.env.RAILWAY_VOLUME_MOUNT_PATH;
+  const custom = process.env.DB_PATH;
+  // A DB_PATH outside the volume (e.g. ./data/rekha.db copied from .env.example) would put
+  // the database on the container's temporary disk, wiped on every redeploy. Ignore it.
+  if (custom && vol && !path.resolve(custom).startsWith(path.resolve(vol) + path.sep)) {
+    console.warn(`Ignoring DB_PATH=${custom}: it is outside the volume (${vol}), so data would be lost on redeploy. Delete the DB_PATH variable in Railway.`);
+  } else if (custom) return custom;
   if (isTest) return ':memory:';
-  if (process.env.RAILWAY_VOLUME_MOUNT_PATH) return path.join(process.env.RAILWAY_VOLUME_MOUNT_PATH, 'rekha.db');
+  if (vol) return path.join(vol, 'rekha.db');
   // Without a volume every redeploy would wipe all users and subscriptions.
   if (isProd) throw new Error('No storage volume attached. In Railway: right-click the service > Attach Volume, mount path /data.');
   return './data/rekha.db';
@@ -90,6 +96,7 @@ for (const [table, col, type] of [
   ['ai_calls', 'cache_write', 'INTEGER DEFAULT 0'], ['ai_calls', 'cache_read', 'INTEGER DEFAULT 0'],
   ['users', 'phone', 'TEXT'], ['users', 'password_hash', 'TEXT'], ['users', 'session_v', 'INTEGER DEFAULT 0'],
   ['users', 'failed_logins', 'INTEGER DEFAULT 0'], ['users', 'locked_until', 'INTEGER'],
+  ['users', 'stripe_customer_id', 'TEXT'],
 ]) {
   const cols = db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name);
   if (!cols.includes(col)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${type}`);
@@ -157,6 +164,8 @@ export function putHoroscope(date, sign, lang, text) {
   run('INSERT OR REPLACE INTO horoscope_cache VALUES (?, ?, ?, ?)', date, sign, lang, text);
   run('DELETE FROM horoscope_cache WHERE date < ?', new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10));
 }
+export const setStripeCustomer = (userId, cid) => run('UPDATE users SET stripe_customer_id = ? WHERE id = ?', cid, userId);
+export const getUserByStripeCustomer = (cid) => one('SELECT * FROM users WHERE stripe_customer_id = ?', cid);
 export const getUserBySubscription = (sid) => one('SELECT * FROM users WHERE subscription_id = ?', sid);
 export function setPlan(userId, fields) {
   const { plan, status, renewsAt, subscriptionId } = fields;

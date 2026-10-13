@@ -334,3 +334,13 @@ html[data-script] .tabs a, html[data-script] .tabs button { line-height: 1.5; }
 .lang-note a { font-weight: 600; }
 @media (max-width: 520px) { .lang-menu .lang-name { display: none; } .lang-menu > summary { padding: 6px 9px; }
   .lang-menu ul { position: fixed; left: 16px; right: 16px; top: 64px; min-width: 0; } }
+
+/* ---------- world city search ---------- */
+.place-search { position: relative; margin-bottom: var(--s2); }
+.place-search input { width: 100%; }
+.place-results { position: absolute; z-index: 20; left: 0; right: 0; top: calc(100% + 4px); margin: 0; padding: 4px; list-style: none; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-sm); box-shadow: var(--shadow); max-height: 280px; overflow: auto; }
+.place-results li { padding: 0; }
+.place-results li.muted { padding: 10px; font-size: var(--fs-sm); }
+.place-results button { display: block; width: 100%; text-align: left; background: none; border: 0; border-radius: 8px; padding: 9px 10px; font: inherit; color: var(--ink); cursor: pointer; }
+.place-results button:hover, .place-results button:focus-visible { background: var(--surface-2); }
+.place-results small { display: block; color: var(--muted); font-size: var(--fs-xs); }

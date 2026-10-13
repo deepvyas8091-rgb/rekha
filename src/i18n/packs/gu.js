@@ -166,6 +166,14 @@ const UI = {
   'Cancel? You keep premium until the end of the month you paid for.': 'રદ કરવું છે? ચૂકવેલા મહિનાના અંત સુધી પ્રીમિયમ ચાલુ રહેશે.',
   'Mobile number saved.': 'મોબાઇલ નંબર સેવ થયો.', 'Password saved. Other devices have been signed out.': 'પાસવર્ડ સેવ થયો. બીજાં ડિવાઇસમાંથી સાઇન આઉટ કરી દીધું છે.',
   'This permanently deletes your account, all profiles, scans and readings. Continue?': 'આનાથી તમારું ખાતું, બધી પ્રોફાઇલ, સ્કેન અને રીડિંગ કાયમ માટે કાઢી નખાશે. આગળ વધીએ?',
+  // ---- payments (Stripe)
+  "/year": "/વર્ષ",
+  "Payment method and invoices": "ચુકવણીની રીત અને બિલ",
+  "Your plan changes now. The price difference for the rest of this period is charged or credited. Continue?": "તમારો પ્લાન હમણાં જ બદલાશે. આ સમયગાળાના બાકીના દિવસોનો ભાવફરક લેવાશે અથવા પાછો જમા થશે. આગળ વધીએ?",
+  "Cancel anytime; you keep access until the period you paid for ends.": "ગમે ત્યારે રદ કરો; ચૂકવેલા સમયગાળાના અંત સુધી સુવિધા ચાલુ રહેશે.",
+  "Prices for {country}": "{country} માટે કિંમતો",
+  "Search any city or town": "કોઈ પણ શહેર કે ગામ શોધો",
+  "No city found. Try the nearest bigger town.": "શહેર મળ્યું નહીં. નજીકનું કોઈ મોટું શહેર શોધો.",
   // ---- install
   'Add Rekha to your Home Screen': 'Rekha હોમ સ્ક્રીન પર ઉમેરો',
   'Tap the <strong>Share</strong> button (the square with an arrow, at the bottom of Safari).': '<strong>શેર</strong> બટન પર ટેપ કરો (Safariમાં નીચે, તીરવાળો ચોરસ).',

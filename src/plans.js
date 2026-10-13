@@ -1,4 +1,4 @@
-// Plans and fair-use limits. Change prices here and in the Razorpay dashboard.
+// Plans and fair-use limits. Change prices here and in the payment dashboard (Stripe or Razorpay).
 // Limits are per profile per calendar month, multiplied by the plan's profiles.
 
 export const PLANS = {
@@ -8,17 +8,17 @@ export const PLANS = {
     personal: false,
   },
   solo: {
-    name: 'Solo', priceInr: 49, profiles: 1, envPlanId: 'RZP_PLAN_SOLO',
+    name: 'Solo', priceInr: 49, profiles: 1, envPlanId: 'RZP_PLAN_SOLO', envStripePrice: 'STRIPE_PRICE_SOLO',
     limits: { palm: 4, reading: 4, chat: 60, match: 10, daily: 31 },
     personal: true,
   },
   couple: {
-    name: 'Couple', priceInr: 99, profiles: 2, envPlanId: 'RZP_PLAN_COUPLE',
+    name: 'Couple', priceInr: 99, profiles: 2, envPlanId: 'RZP_PLAN_COUPLE', envStripePrice: 'STRIPE_PRICE_COUPLE',
     limits: { palm: 4, reading: 4, chat: 60, match: 10, daily: 31 },
     personal: true,
   },
   family: {
-    name: 'Family', priceInr: 199, profiles: 4, envPlanId: 'RZP_PLAN_FAMILY',
+    name: 'Family', priceInr: 199, profiles: 4, envPlanId: 'RZP_PLAN_FAMILY', envStripePrice: 'STRIPE_PRICE_FAMILY',
     limits: { palm: 4, reading: 4, chat: 60, match: 10, daily: 31 },
     personal: true,
   },
@@ -47,7 +47,7 @@ export const FEATURES = {
 export function planOf(user) {
   if (!user) return PLANS.free;
   const paidUntil = user.plan_renews_at || 0;
-  const grace = 3 * 86400000; // keep access while Razorpay retries a failed renewal
+  const grace = 3 * 86400000; // keep access while the payment provider retries a failed renewal
   const active = user.plan !== 'free' && (
     (['active', 'authenticated', 'cancelling', 'pending'].includes(user.plan_status) && paidUntil > Date.now() - grace)
     // Cancelled or halted users keep what they already paid for.
@@ -64,9 +64,10 @@ export function monthKey(d = new Date()) {
   return d.toISOString().slice(0, 7);
 }
 
-export function publicPlans() {
+/** prices: optional { planKey: { amount, currency, interval } } read from the payment provider. */
+export function publicPlans(prices = {}) {
   return Object.entries(PLANS).map(([key, p]) => ({
-    key, name: p.name, priceInr: p.priceInr, profiles: p.profiles,
+    key, name: p.name, priceInr: p.priceInr, profiles: p.profiles, price: prices[key] || null,
     features: key === 'free' ? FEATURES.free : [`${p.profiles} ${p.profiles === 1 ? 'profile' : 'profiles'}`, ...FEATURES.paid],
   }));
 }

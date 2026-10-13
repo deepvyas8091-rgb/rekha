@@ -6,7 +6,7 @@ import {
   upsertGoogleUser, getUser, storedSecret, getUserByPhone, createPhoneUser, setPassword,
   recordLoginFailure, clearLoginFailures, setPhone,
 } from './db.js';
-import { isProd, devLoginEnabled } from './env.js';
+import { isProd, devLoginEnabled, clientIp } from './env.js';
 
 // SESSION_SECRET is optional: if unset, a random one is created once and kept in the database.
 const SECRET = process.env.SESSION_SECRET || storedSecret('session_secret');
@@ -83,7 +83,7 @@ function checkPassword(pw) {
 const attempts = new Map();
 function ipLimit(max, windowMs) {
   return (req, _res, next) => {
-    const key = `${req.ip}:${req.path}`;
+    const key = `${clientIp(req)}:${req.path}`;
     const now = Date.now();
     const arr = (attempts.get(key) || []).filter((t) => now - t < windowMs);
     if (arr.length >= max) return next(fail(429, 'Too many attempts. Please wait a few minutes and try again.'));

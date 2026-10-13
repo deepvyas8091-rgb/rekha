@@ -3,7 +3,8 @@ import {
   TIMES, PANCHANG, nakshatraNature, SIGN_TRAIT, PLANET, HOUSE, DASHA, KUNDLI_TERMS, LIFE_PATH,
   CHINESE_ANIMAL, ELEMENT, PALM_GUIDE, FACE_GUIDE, PALM_SVG, FACE_SVG,
 } from './guide.js';
-import { t, d, N, month, lang, loadPack, pathFor, fmtDate } from './i18n.js';
+import { t, d, N, month, lang, loadPack, pathFor, fmtDate, locale } from './i18n.js';
+import { COUNTRIES } from './countries.js';
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -47,7 +48,7 @@ async function boot() {
   [state.meta] = await Promise.all([api('/api/meta'), loadPack()]);
   $('#demoBanner').hidden = !state.meta.demoMode;
   const cityOpts = state.meta.cities.map((c, i) => `<option value="${i}">${esc(d(c.name))}</option>`).join('');
-  for (const sel of ['#placeSel', '[name=city]', '[name=bCity]', '[name=gCity]']) $(sel).innerHTML = cityOpts;
+  for (const sel of ['#placeSel', '[name=city]', '[name=bCity]', '[name=gCity]']) { $(sel).innerHTML = cityOpts; citySearch($(sel)); }
   const actOpts = state.meta.activities.map((a) => `<option value="${a}">${esc(actName(a))}</option>`).join('');
   $('#activity').innerHTML = actOpts; $('#calActivity').innerHTML = actOpts;
   // Reading language: the page language unless the user picked another one for readings.
@@ -63,6 +64,7 @@ async function boot() {
   renderGuides();
   await refreshMe();
   loadToday();
+  finishCheckout();
   // Deep links from articles, e.g. /?tab=chart. Tabs keep the URL in sync, so Back works.
   const tab = new URLSearchParams(location.search).get('tab');
   if (tab && $(`#tab-${tab}`)) switchTab(tab, false);
@@ -111,7 +113,7 @@ function bindUi() {
   });
   $$('dialog [data-close]').forEach((b) => b.addEventListener('click', () => b.closest('dialog').close()));
   $('#placeBtn').addEventListener('click', () => $('#placeDlg').showModal());
-  $('#placeDlg').addEventListener('close', () => { if ($('#placeDlg').returnValue === 'ok') setPlace(state.meta.cities[+$('#placeSel').value]); });
+  $('#placeDlg').addEventListener('close', () => { if ($('#placeDlg').returnValue === 'ok') setPlace(placeOf($('#placeSel').value)); });
   $('#gpsBtn').addEventListener('click', () => navigator.geolocation?.getCurrentPosition((p) => {
     setPlace({ name: t('My location'), lat: +p.coords.latitude.toFixed(4), lon: +p.coords.longitude.toFixed(4), tz: Intl.DateTimeFormat().resolvedOptions().timeZone });
     $('#placeDlg').close();
@@ -186,7 +188,12 @@ function loadGsi() {
   });
   return gsiLoaded;
 }
-const COUNTRY_CODES = [['+91', 'IN +91'], ['+971', 'AE +971'], ['+65', 'SG +65'], ['+60', 'MY +60'], ['+66', 'TH +66'], ['+62', 'ID +62'], ['+63', 'PH +63'], ['+84', 'VN +84'], ['+977', 'NP +977'], ['+94', 'LK +94'], ['+880', 'BD +880'], ['+44', 'UK +44'], ['+1', 'US/CA +1'], ['+61', 'AU +61']];
+// Every country, named in the page language by the browser, sorted by that name.
+const regionName = (() => { try { const dn = new Intl.DisplayNames([document.documentElement.lang || 'en', 'en'], { type: 'region' }); return (c) => dn.of(c) || c; } catch { return (c) => c; } })();
+const countryOptions = (selected) => COUNTRIES.map(([c, dial]) => [c, dial, regionName(c)])
+  .sort((a, b) => a[2].localeCompare(b[2], locale()))
+  .map(([c, dial, name]) => `<option value="${c}+${dial}"${c === selected ? ' selected' : ''}>${esc(name)} +${dial}</option>`).join('');
+const homeCountry = () => state.pricing?.country || 'IN';
 function authMode(mode) {
   $$('[data-auth]').forEach((b) => b.classList.toggle('on', b.dataset.auth === mode));
   $('#loginForm').hidden = mode !== 'login';
@@ -196,8 +203,8 @@ function authMode(mode) {
 }
 function authError(msg) { $('#authError').textContent = msg; $('#authError').hidden = false; }
 function bindAuth() {
-  const opts = COUNTRY_CODES.map(([v, l]) => `<option value="${v}">${l}</option>`).join('');
-  $$('#signinDlg [name=countryCode]').forEach((sel) => { sel.innerHTML = opts; });
+  const fill = () => { const opts = countryOptions(homeCountry()); $$('#signinDlg [name=countryCode]').forEach((sel) => { sel.innerHTML = opts; }); };
+  fill(); loadPricing().then(fill);
   $$('[data-auth]').forEach((b) => b.addEventListener('click', () => authMode(b.dataset.auth)));
   const submit = (path) => async (e) => {
     e.preventDefault();
@@ -246,19 +253,40 @@ async function afterSignin() {
 }
 
 // ---------- plans + checkout ----------
-function openPlans(why) {
+// Prices for the visitor's country (from the browser's time zone, or Cloudflare when proxied).
+let pricingP = null;
+function loadPricing() {
+  pricingP ||= api(`/api/pricing?${qs({ tz: Intl.DateTimeFormat().resolvedOptions().timeZone })}`).then((p) => { state.pricing = p; return p; }).catch(() => null);
+  return pricingP;
+}
+async function openPlans(why) {
+  await loadPricing();
+  const priced = state.pricing?.plans || {};
+  $('#plansNote').textContent = state.pricing?.country === 'IN' || !state.pricing
+    ? t('Prices include GST. Cancel anytime; you keep access until the month you paid for ends.')
+    : t('Cancel anytime; you keep access until the period you paid for ends.');
+  $('#plansCountry').textContent = state.pricing ? t('Prices for {country}', { country: regionName(state.pricing.country) }) : '';
   $('#plansWhy').textContent = why || t('Free tools stay free. Premium adds your personal times, daily guidance and full readings.');
   const cur = state.me.plan?.key || 'free';
   $('#plansList').innerHTML = state.meta.plans.filter((p) => p.key !== 'free').map((p) => `
     <div class="plan${cur === p.key ? ' current' : ''}${p.key === 'couple' ? ' popular' : ''}">
       ${p.key === 'couple' ? `<span class="tag">${esc(t('Most popular'))}</span>` : ''}
       <h3>${esc(t(p.name))}</h3>
-      <div class="price">₹${p.priceInr}<small>${esc(t('/month'))}</small></div>
+      <div class="price">${priceHtml({ ...p, price: priced[p.key] || p.price })}</div>
       <ul>${p.features.slice(0, 4).map((f) => `<li>${esc(d(f))}</li>`).join('')}</ul>
       <button class="primary" data-plan="${p.key}" ${cur === p.key ? 'disabled' : ''}>${esc(cur === p.key ? t('Your plan') : cur === 'free' ? t('Start {plan}', { plan: t(p.name) }) : t('Switch to {plan}', { plan: t(p.name) }))}</button>
     </div>`).join('');
   $$('#plansList [data-plan]').forEach((b) => b.addEventListener('click', () => subscribe(b.dataset.plan)));
   if (!$('#plansDlg').open) $('#plansDlg').showModal();
+}
+// Price as the payment provider has it (Stripe can be any currency or interval), else the ₹ default.
+function priceHtml(p) {
+  const pr = p.price;
+  if (!pr) return `₹${p.priceInr}<small>${esc(t('/month'))}</small>`;
+  let amount;
+  try { amount = new Intl.NumberFormat(locale(), { style: 'currency', currency: pr.currency, maximumFractionDigits: pr.amount % 1 ? 2 : 0 }).format(pr.amount); } catch { amount = `${pr.currency} ${pr.amount}`; }
+  const per = pr.interval === 'year' ? t('/year') : t('/month');
+  return `${esc(amount)}<small>${esc(per)}</small>`;
 }
 let rzpLoaded = null;
 function loadRazorpay() {
@@ -271,8 +299,14 @@ function loadRazorpay() {
 async function subscribe(plan) {
   if (!state.me.user) { $('#plansDlg').close(); openSignin(t('Sign in first so your plan is saved to your account.')); return; }
   try {
-    if (state.me.plan?.key !== 'free' && !confirm(t('Switching starts a new monthly plan today and ends your current one. Continue?'))) return;
-    const s = await post('/api/billing/subscribe', { plan });
+    const switchMsg = state.meta.billing === 'stripe'
+      ? t('Your plan changes now. The price difference for the rest of this period is charged or credited. Continue?')
+      : t('Switching starts a new monthly plan today and ends your current one. Continue?');
+    if (state.me.plan?.key !== 'free' && !confirm(switchMsg)) return;
+    const s = await post('/api/billing/subscribe', { plan, lang, tz: Intl.DateTimeFormat().resolvedOptions().timeZone });
+    // Stripe: plan changes happen straight away; new subscriptions go to Stripe's payment page.
+    if (s.changed) { $('#plansDlg').close(); await refreshMe(); loadToday(); toast(t('Welcome to {plan}!', { plan: t(PLAN_NAME[s.plan] || s.plan) })); return; }
+    if (s.url) { location.href = s.url; return; }
     await loadRazorpay();
     const rzp = new window.Razorpay({
       key: s.keyId, subscription_id: s.subscriptionId, name: 'Rekha', description: t('{plan} plan, ₹{price}/month', { plan: t(s.name), price: s.priceInr }),
@@ -286,6 +320,20 @@ async function subscribe(plan) {
   } catch (e) { if (e.status !== 402) alert(e.message); }
 }
 
+const PLAN_NAME = { solo: N('Solo'), couple: N('Couple'), family: N('Family') };
+// Back from Stripe Checkout with ?paid=<session id>: confirm, then tidy the address bar.
+async function finishCheckout() {
+  const params = new URLSearchParams(location.search);
+  const sid = params.get('paid'); if (!sid) return;
+  params.delete('paid');
+  history.replaceState(null, '', location.pathname + (params.toString() ? `?${params}` : ''));
+  try {
+    const r = await post('/api/billing/verify', { sessionId: sid });
+    await refreshMe(); loadToday();
+    toast(t('Welcome to {plan}!', { plan: t(PLAN_NAME[r.plan] || r.plan) }));
+  } catch (e) { toast(e.message); }
+}
+
 // ---------- account ----------
 function openAccount() {
   const m = state.me; const p = m.plan;
@@ -297,10 +345,11 @@ function openAccount() {
     <div class="card"><strong>${esc(t('{plan} plan', { plan: t(p.name) }))}</strong>${p.key !== 'free' && renew ? `<p class="hint">${esc(p.status === 'cancelling' || p.status === 'cancelled' ? t('Access until {date}', { date: renew }) : t('Renews {date}', { date: renew }))}</p>` : ''}
       <h3>${esc(t('This month'))}</h3>${meter('reading', N('Full readings'))}${meter('palm', N('Palm scans'))}${meter('chat', N('Questions'))}${meter('match', N('Match explanations'))}${meter('daily', N('Daily guidance'))}
     </div>
+    ${state.meta.billing === 'stripe' && p.key !== 'free' ? `<button class="ghost" id="accPortal">${esc(t('Payment method and invoices'))}</button>` : ''}
     <button class="primary" id="accPlans">${esc(p.key === 'free' ? t('See premium plans') : t('Change plan'))}</button>
     ${p.key !== 'free' && p.status !== 'cancelling' && p.status !== 'cancelled' ? `<button class="ghost" id="accCancel">${esc(t('Cancel subscription'))}</button>` : ''}
     <details class="explain"><summary>${esc(m.user.phone ? t('Change mobile number') : t('Add mobile number'))}</summary><div>
-      <form id="accPhone" class="form"><span class="phone"><select name="countryCode" aria-label="${esc(t('Country code'))}">${COUNTRY_CODES.map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}</select><input name="phone" type="tel" inputmode="numeric" placeholder="98765 43210" required></span><button class="ghost">${esc(t('Save number'))}</button></form></div></details>
+      <form id="accPhone" class="form"><span class="phone"><select name="countryCode" aria-label="${esc(t('Country code'))}">${countryOptions(homeCountry())}</select><input name="phone" type="tel" inputmode="numeric" placeholder="98765 43210" required></span><button class="ghost">${esc(t('Save number'))}</button></form></div></details>
     <details class="explain"><summary>${esc(m.user.hasPassword ? t('Change password') : t('Set a password (log in with your mobile number)'))}</summary><div>
       <form id="accPw" class="form">${m.user.hasPassword ? `<input name="currentPassword" type="password" placeholder="${esc(t('Current password'))}" autocomplete="current-password" required>` : ''}<input name="newPassword" type="password" placeholder="${esc(t('New password (8+ characters)'))}" autocomplete="new-password" minlength="8" required><button class="ghost">${esc(t('Save password'))}</button></form></div></details>
     <p class="hint" id="accMsg"></p>
@@ -308,6 +357,9 @@ function openAccount() {
     <button class="ghost danger" id="accDelete">${esc(t('Delete my account and data'))}</button>
     <button class="ghost" data-close>${esc(t('Close'))}</button>`;
   $('#accountBody [data-close]').addEventListener('click', () => $('#accountDlg').close());
+  $('#accPortal')?.addEventListener('click', async () => {
+    try { const r = await post('/api/billing/portal', {}); location.href = r.url; } catch (e) { alert(e.message); }
+  });
   $('#accPlans').addEventListener('click', () => { $('#accountDlg').close(); openPlans(); });
   $('#accCancel')?.addEventListener('click', async () => {
     if (!confirm(t('Cancel? You keep premium until the end of the month you paid for.'))) return;
@@ -496,10 +548,57 @@ function renderProfiles() {
 }
 function fillBirth(b) {
   const f = $('#birthForm'); f.name.value = b.name || ''; f.date.value = b.date; f.time.value = b.time;
-  const i = state.meta.cities.findIndex((c) => c.name === b.city); if (i >= 0) f.city.value = i;
+  const i = state.meta.cities.findIndex((c) => c.name === b.city);
+  if (i >= 0) f.city.value = i;
+  else if (b.city && Number.isFinite(b.lat)) addPlaceOption(f.city, { name: b.city, lat: b.lat, lon: b.lon, tz: b.tz });
 }
-function birthFrom(dateV, timeV, cityIdx) {
-  const c = state.meta.cities[+cityIdx];
+// ---------- world city search ----------
+// The 40 main cities stay in each list; a search box above it finds any city in the world.
+const extraPlaces = [];
+function placeOf(value) {
+  return String(value).startsWith('p:') ? extraPlaces[+String(value).slice(2)] : state.meta.cities[+value];
+}
+function addPlaceOption(select, place) {
+  extraPlaces.push(place);
+  const opt = document.createElement('option');
+  opt.value = `p:${extraPlaces.length - 1}`;
+  opt.textContent = place.country ? `${place.name}, ${regionName(place.country)}` : place.name;
+  select.prepend(opt); select.value = opt.value;
+  select.dispatchEvent(new Event('change'));
+}
+function citySearch(select) {
+  const box = document.createElement('div'); box.className = 'place-search';
+  box.innerHTML = `<input type="search" autocomplete="off" placeholder="${esc(t('Search any city or town'))}" aria-label="${esc(t('Search any city or town'))}"><ul class="place-results" hidden></ul>`;
+  select.before(box);
+  const input = box.querySelector('input'); const list = box.querySelector('ul');
+  let timer = null; let results = [];
+  input.addEventListener('input', () => {
+    clearTimeout(timer);
+    const q = input.value.trim();
+    if (q.length < 2) { list.hidden = true; return; }
+    timer = setTimeout(async () => {
+      try { results = await api(`/api/places?${qs({ q })}`); } catch { results = []; }
+      list.innerHTML = results.length ? results.map((r, i) => `<li><button type="button" data-i="${i}">${esc(r.name)}<small>${esc([r.region, regionName(r.country)].filter(Boolean).join(', '))}</small></button></li>`).join('')
+        : `<li class="muted">${esc(t('No city found. Try the nearest bigger town.'))}</li>`;
+      list.hidden = false;
+    }, 250);
+  });
+  // Enter picks the first match instead of submitting the surrounding form.
+  input.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    list.querySelector('button[data-i]')?.click();
+  });
+  list.addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-i]'); if (!b) return;
+    const r = results[+b.dataset.i];
+    addPlaceOption(select, { name: r.name, lat: r.lat, lon: r.lon, tz: r.tz, country: r.country });
+    input.value = ''; list.hidden = true;
+  });
+}
+
+function birthFrom(dateV, timeV, cityValue) {
+  const c = placeOf(cityValue);
   return { date: dateV, time: timeV, lat: c.lat, lon: c.lon, tz: c.tz, city: c.name };
 }
 async function onBirth(e) {

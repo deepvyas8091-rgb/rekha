@@ -1,15 +1,28 @@
-// Razorpay Subscriptions. Plans (₹49 / ₹99 / ₹199 monthly) are created once in
-// the Razorpay dashboard; their IDs go in RZP_PLAN_SOLO / _COUPLE / _FAMILY.
+// Payments. Two providers, one at a time:
+//   Stripe   (src/stripe.js) when STRIPE_SECRET_KEY is set: good for starting out.
+//   Razorpay (this file) otherwise: UPI and Indian cards at Indian rates, needs an Indian business.
+// PAYMENT_PROVIDER=razorpay|stripe forces one. Switching later keeps existing users' plans.
+// Razorpay plans (₹49 / ₹99 / ₹199 monthly) are created in its dashboard; their IDs go
+// in RZP_PLAN_SOLO / _COUPLE / _FAMILY.
 import crypto from 'node:crypto';
 import express from 'express';
 import { PLANS, planOf } from './plans.js';
 import { setPlan, getUserBySubscription, recordEvent, getUser } from './db.js';
 import { requireUser } from './auth.js';
+import { stripeConfigured, stripeWebhookRoute, stripeJsonRoutes } from './stripe.js';
 
 const KEY_ID = () => process.env.RAZORPAY_KEY_ID;
 const KEY_SECRET = () => process.env.RAZORPAY_KEY_SECRET;
 const WEBHOOK_SECRET = () => process.env.RAZORPAY_WEBHOOK_SECRET;
-export const billingConfigured = () => !!(KEY_ID() && KEY_SECRET());
+const razorpayConfigured = () => !!(KEY_ID() && KEY_SECRET());
+/** 'stripe', 'razorpay' or null (payments off). */
+export function paymentProvider() {
+  const forced = process.env.PAYMENT_PROVIDER;
+  if (forced === 'razorpay') return razorpayConfigured() ? 'razorpay' : null;
+  if (forced === 'stripe' || stripeConfigured()) return stripeConfigured() ? 'stripe' : null;
+  return razorpayConfigured() ? 'razorpay' : null;
+}
+export const billingConfigured = () => paymentProvider();
 
 function hmacHex(key, msg) { return crypto.createHmac('sha256', key).update(msg).digest('hex'); }
 function safeEq(a, b) { return typeof a === 'string' && typeof b === 'string' && a.length === b.length && crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b)); }
@@ -34,6 +47,7 @@ const STATUS = {
 };
 
 export function billingRoutes(app) {
+  stripeWebhookRoute(app);
   // Webhook needs the raw body for signature checks, so it is registered before express.json().
   app.post('/api/billing/webhook', express.raw({ type: '*/*', limit: '1mb' }), (req, res) => {
     const raw = req.body instanceof Buffer ? req.body.toString('utf8') : '';
@@ -65,13 +79,14 @@ export function billingRoutes(app) {
 }
 
 export function billingJsonRoutes(app) {
+  if (paymentProvider() === 'stripe') { stripeJsonRoutes(app); return; }
   // Start a subscription: returns what Razorpay Checkout needs in the browser.
   app.post('/api/billing/subscribe', requireUser, async (req, res, next) => {
     try {
       const key = req.body.plan;
       const plan = PLANS[key];
       if (!plan || !plan.envPlanId) throw Object.assign(new Error('Unknown plan'), { status: 400 });
-      if (!billingConfigured() || !process.env[plan.envPlanId]) throw Object.assign(new Error('Payments are not set up yet'), { status: 501 });
+      if (!razorpayConfigured() || !process.env[plan.envPlanId]) throw Object.assign(new Error('Payments are not set up yet'), { status: 501 });
       const sub = await rzp('/subscriptions', {
         plan_id: process.env[plan.envPlanId],
         total_count: 120, // monthly for up to 10 years, cancellable any time

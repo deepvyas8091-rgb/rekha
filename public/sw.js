@@ -1,6 +1,6 @@
 // Network-first service worker: always fresh when online, still opens offline.
-const CACHE = 'rekha-v5';
-const SHELL = ['/', '/index.html', '/styles.css', '/app.js', '/guide.js', '/i18n.js', '/manifest.json', '/icon.svg', '/icons/icon-192.png', '/icons/icon-512.png'];
+const CACHE = 'rekha-v6';
+const SHELL = ['/', '/index.html', '/styles.css', '/app.js', '/guide.js', '/i18n.js', '/countries.js', '/manifest.json', '/icon.svg', '/icons/icon-192.png', '/icons/icon-512.png'];
 self.addEventListener('install', (e) => { self.skipWaiting(); e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL))); });
 self.addEventListener('activate', (e) => e.waitUntil(
   caches.keys().then((ks) => Promise.all(ks.filter((k) => k !== CACHE).map((k) => caches.delete(k)))).then(() => self.clients.claim()),

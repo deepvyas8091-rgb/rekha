@@ -17,7 +17,9 @@ import { PLANS, planOf, planKey, monthKey, publicPlans } from './plans.js';
 import * as store from './db.js';
 import { sessionMiddleware, requireUser, authRoutes, hashPassword } from './auth.js';
 import { billingRoutes, billingJsonRoutes, billingConfigured } from './billing.js';
-import { devLoginEnabled, isTest } from './env.js';
+import { priceFor, visitorCountry } from './pricing.js';
+import { searchPlaces } from './data/places.js';
+import { devLoginEnabled, isTest, clientIp } from './env.js';
 import { seoRoutes, ARTICLES, clearPageCache } from './seo/routes.js';
 import { t as tr, isLang, LANG_CODES, localePath, languageNames, packFor, readyLangs, coverage, invalidate } from './i18n/index.js';
 import { renderShell } from './i18n/shell.js';
@@ -79,7 +81,7 @@ function checkBirth(b) {
 const hits = new Map();
 function limit(maxPerHour) {
   return (req, _res, next) => {
-    const key = `${req.ip}:${req.path}`;
+    const key = `${clientIp(req)}:${req.path}`;
     const now = Date.now();
     const arr = (hits.get(key) || []).filter((t) => now - t < 3600000);
     if (arr.length >= maxPerHour) return next(httpError(429, 'Too many requests, try again later'));
@@ -120,11 +122,12 @@ function natalOf(birth) {
 }
 
 // ---- session + catalogue --------------------------------------------------
-app.get('/api/meta', (_req, res) => res.json({
-  demoMode, languages: LANGUAGES, languageNames: languageNames(), readyLangs: readyLangs(), activities: ACTIVITIES, cities: CITIES, plans: publicPlans(),
+app.get('/api/meta', wrap(async (_req, res) => res.json({
+  demoMode, languages: LANGUAGES, languageNames: languageNames(), readyLangs: readyLangs(), activities: ACTIVITIES, cities: CITIES,
+  plans: publicPlans(),
   googleClientId: process.env.GOOGLE_CLIENT_ID || null, devLogin: devLoginEnabled,
   billing: billingConfigured(),
-}));
+})));
 
 app.get('/api/me', (req, res) => {
   if (!req.user) return res.json({ user: null });
@@ -146,6 +149,19 @@ app.delete('/api/me', requireUser, wrap(async (req, res) => {
   res.setHeader('Set-Cookie', 'rk_sess=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0');
   res.json({ ok: true });
 }));
+
+// City search, any country (location, birth place, matching).
+app.get('/api/places', (req, res) => {
+  res.set('Cache-Control', 'public, max-age=86400');
+  res.json(searchPlaces(String(req.query.q || '').slice(0, 60)));
+});
+
+// Prices for the visitor's country (Stripe). Razorpay charges in rupees only.
+app.get('/api/pricing', (req, res) => {
+  const country = billingConfigured() === 'razorpay' ? 'IN' : visitorCountry(req, req.query.tz);
+  res.set('Cache-Control', 'private, max-age=3600');
+  res.json({ country, plans: Object.fromEntries(['solo', 'couple', 'family'].map((k) => [k, priceFor(k, country)])) });
+});
 
 // Translations for the browser: interface, explanations and engine names (keyed by English).
 app.get('/api/i18n/:lang', (req, res) => {
@@ -488,8 +504,11 @@ if (!isTest) {
   const server = app.listen(port, '0.0.0.0', () => {
     console.log(`Rekha running on port ${port}`);
     console.log(`Database: ${store.dbLocation}`);
-    const missing = ['ANTHROPIC_API_KEY', 'GOOGLE_CLIENT_ID', 'RAZORPAY_KEY_ID', 'RAZORPAY_KEY_SECRET', 'RAZORPAY_WEBHOOK_SECRET', 'RZP_PLAN_SOLO', 'RZP_PLAN_COUPLE', 'RZP_PLAN_FAMILY', 'ADMIN_TOKEN']
-      .filter((k) => !process.env[k]);
+    const pay = billingConfigured() === 'stripe'
+      ? ['STRIPE_SECRET_KEY', 'STRIPE_WEBHOOK_SECRET']
+      : ['RAZORPAY_KEY_ID', 'RAZORPAY_KEY_SECRET', 'RAZORPAY_WEBHOOK_SECRET', 'RZP_PLAN_SOLO', 'RZP_PLAN_COUPLE', 'RZP_PLAN_FAMILY'];
+    const missing = ['ANTHROPIC_API_KEY', 'GOOGLE_CLIENT_ID', ...pay, 'ADMIN_TOKEN'].filter((k) => !process.env[k]);
+    console.log(`Payments: ${billingConfigured() || 'off (no Stripe or Razorpay keys yet)'}`);
     if (missing.length) console.log(`Not set yet (features stay off until added): ${missing.join(', ')}`);
     // Translate whatever is missing, a minute after start (only new strings after the first run).
     if (!demoMode && process.env.TRANSLATE_AUTO !== '0') {

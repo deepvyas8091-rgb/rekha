@@ -117,7 +117,34 @@ Put your WhatsApp support number on the site (for example in the footer) before 
 6. In Railway → service → **Variables**, add `GOOGLE_CLIENT_ID` = the Client ID. Railway redeploys in about a minute.
 7. Test: open the site, tap **Sign in**, and the **Continue with Google** button appears under the mobile form.
 
-## Step 7: Payments with Razorpay
+## Step 7a: Payments with Stripe (start here)
+
+Stripe is switched on automatically when `STRIPE_SECRET_KEY` is set. Use **test mode** first (keys start with `sk_test_`); no real money moves.
+
+1. **Prices are automatic.** Nothing to create in Stripe. On the first checkout the app creates three products (Rekha Solo, Couple, Family) and one price per plan and country tier, each with the local currencies of that tier. Visitors see prices for their country (from their phone's time zone, or Cloudflare's country if the site runs through Cloudflare's proxy):
+
+   | Tier | Countries | Solo / Couple / Family per month |
+   |---|---|---|
+   | A | US, UK, Europe, GCC, Singapore, Hong Kong, Japan, Australia, Canada ... | $4.99 / $8.99 / $14.99, or local: AED 19 / 35 / 55, £3.99 / 6.99 / 11.99, €4.49 / 7.99 / 13.49 ... |
+   | B | Malaysia, Thailand, Latin America, South Africa, Turkey and most others | $2.99 / $4.99 / $7.99, or local: RM 9.90 / 16.90 / 26.90, ฿89 / 149 / 249 ... |
+   | C | India, Pakistan, Bangladesh, Nepal, Sri Lanka, Indonesia, Philippines, Vietnam, most of Africa | $1.49 / $2.49 / $3.99, or local: ₹49 / 99 / 199, Rp 19,000 / 35,000 / 59,000 ... |
+
+   To change prices, edit `src/pricing.js` and bump `PRICE_VERSION` (or ask Claude). Existing subscribers keep their old price. You can delete any `STRIPE_PRICE_*` variables you added earlier.
+2. **Secret key.** **Developers → API keys** → copy the **Secret key** into `STRIPE_SECRET_KEY`.
+3. **Webhook.** **Developers → Webhooks → Add destination** (or "Add endpoint"):
+   - URL: `https://rekha-production-12c6.up.railway.app/api/billing/stripe-webhook` (this keeps working after you move to rekha.io, because `/api/` is never redirected; you can switch it to `https://rekha.io/api/billing/stripe-webhook` later)
+   - Events: `checkout.session.completed`, `customer.subscription.created`, `customer.subscription.updated`, `customer.subscription.deleted`, `invoice.paid`, `invoice.payment_failed`
+   - Copy the **Signing secret** (starts with `whsec_`) into `STRIPE_WEBHOOK_SECRET`.
+4. **Customer portal.** **Settings → Billing → Customer portal** → turn it on, allow updating payment methods, viewing invoices and cancelling. The app's Account screen links to it.
+5. Railway redeploys. The log should say `Payments: stripe`. (Only `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` are needed.)
+6. **Test:** sign in on the site → **Premium** → **Start Solo** → Stripe's page opens → pay with card `4242 4242 4242 4242`, any future date, any CVC. You come back to the app on Premium. To test an Indian card with the RBI e-mandate flow, use `4000 0035 6000 0123`.
+7. **Going live:** switch the dashboard to live mode, create the same three prices and a live webhook, and replace the four Stripe values with the live ones.
+
+What Stripe handles for you: card mandates required by RBI for Indian cards on subscriptions, renewal retries, receipts and invoices. What it does not give you from a UAE account: **UPI**, which is how most Indians pay small amounts.
+
+To move to Razorpay later, add the Razorpay values from Step 7b and set `PAYMENT_PROVIDER=razorpay`. Existing Stripe subscribers keep their plan until they cancel; new sign-ups go to Razorpay. (Their Stripe renewals keep syncing as long as the Stripe keys and webhook stay in place.)
+
+## Step 7b: Payments with Razorpay (later, needs an Indian business)
 
 Do all of this in **Test mode** first (toggle at the top of the Razorpay dashboard).
 
@@ -193,6 +220,7 @@ Every AI call uses Claude Haiku 5.5, the lowest-cost model (a full reading costs
 
 | Problem | Fix |
 |---|---|
+| Log says `Database: ./data/rekha.db` instead of `/data/rekha.db` | Delete the `DB_PATH` variable in Railway. It must not be set there; the app finds the volume itself. Until fixed, every redeploy wipes users and translations |
 | `rekha.io` shows "not secure" or does not open | DNS not finished or Cloudflare cloud is orange; set it to DNS only (grey) and wait |
 | Site keeps forwarding to rekha.io, which does not open | `PUBLIC_URL` was set before the domain worked; delete the variable until Step 5 is done |
 | A language shows English in places | The translation job is still running or a few strings failed; see `/admin` → Languages and press the button again |
