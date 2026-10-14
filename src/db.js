@@ -278,5 +278,6 @@ export function putTranslations(lang, ns, rows) {
     db.exec('COMMIT');
   } catch (e) { db.exec('ROLLBACK'); throw e; }
 }
+export const deleteTranslation = (lang, ns, src) => run('DELETE FROM translations WHERE lang = ? AND ns = ? AND src = ?', lang, ns, src);
 export const translationCounts = () => all(`SELECT lang, CASE WHEN ns LIKE 'article:%' THEN 'articles' ELSE ns END AS ns, origin, COUNT(*) n
   FROM translations GROUP BY 1, 2, 3 ORDER BY 1, 2`);

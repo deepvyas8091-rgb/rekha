@@ -6,6 +6,15 @@ import { catalog, GROUPS } from './catalog.js';
 import { OTHER_LANGS, isLang, dictFor, invalidate, articleFields, hash, HAND_PACKS } from './index.js';
 import * as store from '../db.js';
 import { translateItems, demoMode } from '../ai/reader.js';
+import { scriptOk } from './script.js';
+
+/** Remove stored machine translations written in the wrong script, so the next run redoes them. */
+export function purgeWrongScript(lang) {
+  const bad = store.getTranslationsLike(lang, '').filter((r) => r.origin === 'ai' && !scriptOk(lang, r.text));
+  for (const r of bad) store.deleteTranslation(lang, r.ns, r.src);
+  if (bad.length) invalidate(lang);
+  return bad.length;
+}
 
 const BATCH_CHARS = 5000;
 const BATCH_ITEMS = 60;
@@ -68,6 +77,8 @@ export async function runTranslations({ langs = OTHER_LANGS, articles = [], scop
   Object.assign(status, { running: true, startedAt: Date.now(), finishedAt: null, done: 0, failed: 0, error: null, log: [] });
   try {
     for (const lang of langs.filter((l) => isLang(l) && l !== 'en')) {
+      const purged = purgeWrongScript(lang);
+      if (purged) note(`${lang}: ${purged} translations were in the wrong script, redoing them`);
       if (scope !== 'articles') {
         // Interface strings in order of importance: app, page templates, names, explanations.
         for (const g of ['app', 'seo', 'data', 'guide']) {

@@ -57,6 +57,11 @@ test('every sitemap URL renders and every internal link resolves', async () => {
     for (const m of html.matchAll(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g)) JSON.parse(m[1]);
     if (!/^\/([a-z]{2}\/)?$/.test(u)) { // the app shell has one h1 per tab
       assert.match(html, /<title>[^<]{10,}<\/title>/, `title on ${u}`);
+      // Search results cut titles at about 60 to 70 characters and descriptions at about 160.
+      const title = html.match(/<title>([^<]*)<\/title>/)[1].replace(/&#39;/g, "'").replace(/&amp;/g, '&');
+      const desc = html.match(/<meta name="description" content="([^"]*)"/)[1].replace(/&#39;/g, "'").replace(/&amp;/g, '&');
+      assert.ok([...title].length <= 70, `title too long on ${u}: ${title}`);
+      assert.ok([...desc].length <= 170, `description too long on ${u} (${[...desc].length})`);
       assert.match(html, /<meta name="description" content="[^"]{50,}"/, `description on ${u}`);
       assert.match(html, /<link rel="canonical"/, `canonical on ${u}`);
       assert.equal((html.match(/<h1[ >]/g) || []).length, 1, `one h1 on ${u}`);
@@ -75,11 +80,30 @@ test('robots.txt allows search and AI crawlers, blocks private paths', async () 
   assert.match(t, /Disallow: \/api\//);
   assert.match(t, /User-agent: GPTBot\nAllow: \//);
   assert.match(t, /Sitemap: http/);
-  assert.match(await (await fetch(`${base}/llms.txt`)).text(), /Choghadiya today by city/);
+  assert.match(t, /Disallow: \/\*\?paid=/);
+  const llms = await (await fetch(`${base}/llms.txt`)).text();
+  assert.match(llms, /^# Rekha\n\n> /);
+  assert.match(llms, /Choghadiya today by city/);
+  assert.match(llms, /## Languages[\s\S]*Hindi[\s\S]*Gujarati/);
+  assert.match(llms, /in India from ₹49 a month/);
+  const full = await (await fetch(`${base}/llms-full.txt`)).text();
+  assert.ok(full.length > 50000, 'full text of every guide');
+  assert.equal((full.match(/^URL: /gm) || []).length, ARTICLES.length);
 });
 
 test('unknown pages get a friendly 404', async () => {
   const r = await fetch(`${base}/insights/does-not-exist`);
   assert.equal(r.status, 404);
   assert.match(await r.text(), /Page not found/);
+});
+
+test('legal pages: absolute canonical, kept out of search while drafts', async () => {
+  const h = await (await fetch(`${base}/privacy`)).text();
+  assert.match(h, /<title>Privacy Policy: Rekha/);
+  assert.match(h, /<link rel="canonical" href="http/);
+  assert.match(h, /noindex/);
+  assert.doesNotMatch(h, /Razorpay\. We never/);
+  assert.doesNotMatch(await (await fetch(`${base}/sitemap.xml`)).text(), /\/privacy</);
+  const r = await fetch(`${base}/hi/terms`, { redirect: 'manual' });
+  assert.equal(r.headers.get('location'), '/terms');
 });

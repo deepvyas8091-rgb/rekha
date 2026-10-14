@@ -13,6 +13,7 @@ import crypto from 'node:crypto';
 import { LINE_SCHEMA } from '../readings/palm.js';
 import { FACE_BANNED_TOPICS } from '../readings/face.js';
 import { logAi, aiSpendThisMonth, getPalmCache, putPalmCache } from '../db.js';
+import { scriptOk } from '../i18n/script.js';
 
 const MODEL_VISION = process.env.MODEL_VISION || 'claude-haiku-5-5';
 const MODEL_REPORT = process.env.MODEL_REPORT || 'claude-haiku-5-5';
@@ -261,6 +262,7 @@ How to translate:
 - Keep Markdown structure exactly: "## " and "### " headings, "- " and "1. " lists, "**bold**", "| tables |", and links [text](/path) with the path unchanged (translate only the link text).
 - Keep numbers, times (e.g. 06:42), ₹ prices and symbols such as › · ★ unchanged.
 - Never add warnings, notes or content that is not in the source. No em dashes.
+- Write every item in the target language and its own script only. Never answer in a different language, even a closely related one.
 - Return exactly one translation per input item, in the same order.`;
 
 /** Translate a list of strings into one language. Returns an array of the same length (null where a translation failed checks). */
@@ -278,12 +280,13 @@ export async function translateItems(items, language, { context = 'interface' } 
       input_schema: { type: 'object', properties: { translations: { type: 'array', items: { type: 'string' } } }, required: ['translations'] },
     }],
     tool_choice: { type: 'tool', name: 'submit' },
-    messages: [{ role: 'user', content: `Translate these ${context === 'article' ? 'article fields' : 'app interface strings'} from English into ${name}. Input (JSON array of ${items.length} items):\n${JSON.stringify(items)}` }],
+    messages: [{ role: 'user', content: `Translate these ${context === 'article' ? 'article fields' : 'app interface strings'} from English into ${name} (language code ${language}). Every translation must be in ${name}. Input (JSON array of ${items.length} items):\n${JSON.stringify(items)}` }],
   });
   track('translate', MODEL_CHAT, res.usage);
   const out = res.content.find((c) => c.type === 'tool_use')?.input?.translations;
   if (!Array.isArray(out) || out.length !== items.length) return items.map(() => null);
   // Reject a translation that lost a placeholder, an HTML tag or a link target.
   const marks = (s) => [...String(s).matchAll(/\{\w+\}|<\/?\w+|\]\(\/[^)]*\)/g)].map((m) => m[0]).sort().join('|');
-  return out.map((tr, i) => (typeof tr === 'string' && tr.trim() && marks(tr) === marks(items[i]) ? tr.trim() : null));
+  // Also reject one written in the wrong script (e.g. Hindi when Tamil was asked for).
+  return out.map((tr, i) => (typeof tr === 'string' && tr.trim() && marks(tr) === marks(items[i]) && scriptOk(language, tr) ? tr.trim() : null));
 }

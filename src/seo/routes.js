@@ -10,6 +10,7 @@ import { CITIES } from '../data/cities.js';
 import { panchang, goodBadTimes } from '../engine/index.js';
 import { dailyHoroscope, SIGN_SLUGS } from '../engine/horoscope.js';
 import { RASHI } from '../engine/constants.js';
+import { priceFor } from '../pricing.js';
 import { tFor, dataT, monthT, LANGS, localePath, readyLangs, isReady, articleFor, articleLangs } from '../i18n/index.js';
 
 export const ARTICLES = [...timings, ...panchangArticles, ...readings];
@@ -20,6 +21,10 @@ const UPDATED = '2026-10-13'; // bump when articles are edited
 const CITY = CITIES.map((c) => ({ ...c, slug: slugify(c.name.replace(/\(.*\)/, '')) }));
 const CITY_BY_SLUG = new Map(CITY.map((c) => [c.slug, c]));
 const todayIn = (tz) => new Intl.DateTimeFormat('en-CA', { timeZone: tz }).format(new Date());
+// Short date for meta descriptions ("Wed, 14 Oct"), long date for pages.
+const short = (d, lang = 'en') => new Date(`${d}T12:00:00Z`).toLocaleDateString(LANGS[lang].locale, { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' });
+/** Join description parts, dropping optional ones from the end while it is over 160 characters. */
+const fit = (base, ...optional) => { let d = base; for (const o of optional) { if (o && [...`${d} ${o}`].length <= 160) d = `${d} ${o}`; } return d; };
 const pretty = (d, lang = 'en') => new Date(`${d}T12:00:00Z`).toLocaleDateString(LANGS[lang].locale, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' });
 const baseOf = (req) => (process.env.PUBLIC_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
 const langOf = (req) => req.lang || 'en';
@@ -69,7 +74,7 @@ export function seoRoutes(app) {
       const groups = CATEGORY_ORDER.map((cat) => [cat, ARTICLES.filter((a) => a.category === cat)]).filter(([, l]) => l.length);
       return page({
         lang, base: baseOf(req), path: '/insights',
-        title: tt('Astrology Insights: Choghadiya, Panchang, Kundli, Palm and Face Reading'),
+        title: tt('Astrology Insights: Choghadiya, Panchang, Kundli, Palm Reading'),
         description: tt('Plain-language guides to Choghadiya, Rahu Kaal, tithi, nakshatra, dasha, Sade Sati, kundli matching, palm lines, face reading, BaZi and numerology.'),
         h1: tt('Insights'), lede: tt('Clear, practical guides to the ideas behind your daily timings, kundli and readings.'),
         crumbs: [[tt('Insights'), '/insights']],
@@ -170,8 +175,8 @@ export function seoRoutes(app) {
       ];
       return page({
         lang, base: baseOf(req), path: `/choghadiya/${c.slug}`,
-        title: tt('Choghadiya Today in {city} ({date}): Shubh, Labh, Amrit Timings', { city, date }),
-        description: tt("Today's day and night Choghadiya for {city} on {day}, from local sunrise {sunrise}. Best time: {best}. Rahu Kaal {rahu}.", { city, day, sunrise: t.sunrise, best: best[0] ? `${best[0].start}–${best[0].end}` : tt('see table'), rahu: rk?.start }),
+        title: tt('Choghadiya Today in {city}: Shubh, Labh, Amrit Timings', { city }),
+        description: tt("Today's day and night Choghadiya for {city} on {day}, from local sunrise {sunrise}. Best time: {best}. Rahu Kaal {rahu}.", { city, day: short(date, lang), sunrise: t.sunrise, best: best[0] ? `${best[0].start}–${best[0].end}` : tt('see table'), rahu: rk?.start }),
         h1: tt('Choghadiya today in {city}', { city }), lede: `${day} · ${tt('Sunrise')} ${t.sunrise} · ${tt('Sunset')} ${t.sunset}`,
         crumbs: [[tt('Choghadiya'), '/choghadiya'], [city, `/choghadiya/${c.slug}`]],
         jsonld: faqLd(faq),
@@ -206,8 +211,8 @@ export function seoRoutes(app) {
       ];
       return page({
         lang, base: baseOf(req), path: `/rahu-kaal/${c.slug}`,
-        title: tt('Rahu Kaal Today in {city} ({date}): {start} to {end}', { city, date, start: rk.start, end: rk.end }),
-        description: tt('Rahu Kaal in {city} today ({day}) is {start} to {end}. Also Yamaganda, Gulika Kaal, Dur Muhurtam and Abhijit Muhurat from local sunrise {sunrise}.', { city, day, start: rk.start, end: rk.end, sunrise: t.sunrise }),
+        title: tt('Rahu Kaal Today in {city}: {start} to {end}', { city, start: rk.start, end: rk.end }),
+        description: tt('Rahu Kaal in {city} today ({day}) is {start} to {end}. Also Yamaganda, Gulika Kaal, Dur Muhurtam and Abhijit Muhurat from local sunrise {sunrise}.', { city, day: short(date, lang), start: rk.start, end: rk.end, sunrise: t.sunrise }),
         h1: tt('Rahu Kaal today in {city}', { city }), lede: `${day} · ${tt('Sunrise')} ${t.sunrise} · ${tt('Sunset')} ${t.sunset}`,
         crumbs: [[tt('Rahu Kaal'), '/rahu-kaal'], [city, `/rahu-kaal/${c.slug}`]],
         jsonld: faqLd(faq),
@@ -257,8 +262,8 @@ export function seoRoutes(app) {
       ];
       return page({
         lang, base: baseOf(req), path: `/panchang/${c.slug}`,
-        title: tt("Today's Panchang {city} ({date}): {tithi}, {nakshatra}", { city, date, tithi, nakshatra: nak }),
-        description: tt('Panchang for {city} on {day}: {tithi} tithi, {nakshatra} nakshatra, {yoga} yoga, sunrise {sunrise}, Rahu Kaal {start}–{end}.', { city, day, tithi, nakshatra: nak, yoga: dt(p.yoga[0].name), sunrise: p.sunrise, start: rk.start, end: rk.end }) + (p.festivals.length ? ` ${dt(p.festivals[0])}.` : ''),
+        title: tt("Today's Panchang {city}: {tithi}, {nakshatra}", { city, tithi, nakshatra: nak }),
+        description: fit(tt('Panchang for {city} on {day}: {tithi} tithi, {nakshatra} nakshatra, {yoga} yoga, sunrise {sunrise}, Rahu Kaal {start}–{end}.', { city, day: short(date, lang), tithi, nakshatra: nak, yoga: dt(p.yoga[0].name), sunrise: p.sunrise, start: rk.start, end: rk.end }), p.festivals.length ? `${dt(p.festivals[0])}.` : ''),
         h1: tt("Today's Panchang for {city}", { city }), lede: `${day} · ${tt('{month} month', { month: monthT(lang, p.masa.amanta) })} · ${tt('{paksha} paksha', { paksha: dt(p.paksha) })}`,
         crumbs: [[tt('Panchang'), '/panchang'], [city, `/panchang/${c.slug}`]],
         jsonld: faqLd(faq),
@@ -354,7 +359,8 @@ export function seoRoutes(app) {
     const urls = [
       ...langs.flatMap((l) => pages.map(([u, ...rest]) => [localePath(l, u), ...rest])),
       ...ARTICLES.flatMap((a) => articleLangs(a).map((l) => [localePath(l, `/insights/${a.slug}`), UPDATED, 'monthly', '0.7'])),
-      ['/privacy', UPDATED, 'yearly', '0.2'], ['/terms', UPDATED, 'yearly', '0.2'],
+      // /privacy and /terms are added once the lawyer-reviewed versions are in place (LEGAL_PAGES_FINAL=1).
+      ...(process.env.LEGAL_PAGES_FINAL === '1' ? [['/privacy', UPDATED, 'yearly', '0.2'], ['/terms', UPDATED, 'yearly', '0.2']] : []),
     ];
     res.type('application/xml').send(`<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
@@ -368,6 +374,7 @@ ${urls.map(([u, d, f, p]) => `<url><loc>${base}${u}</loc><lastmod>${d}</lastmod>
 Allow: /
 Disallow: /api/
 Disallow: /admin
+Disallow: /*?paid=
 
 User-agent: GPTBot
 Allow: /
@@ -388,27 +395,52 @@ Sitemap: ${baseOf(req)}/sitemap.xml
 `);
   });
 
+  // llms.txt: a short map of the site for AI assistants (https://llmstxt.org).
   app.get('/llms.txt', (req, res) => {
     const base = baseOf(req);
-    const others = readyLangs().filter((l) => l !== 'en');
+    const live = readyLangs().filter((l) => l !== 'en');
+    const india = priceFor('solo', 'IN');
+    const byCat = CATEGORY_ORDER.map((cat) => [cat, ARTICLES.filter((a) => a.category === cat)]).filter(([, l]) => l.length);
+    res.set('Cache-Control', 'public, max-age=3600');
     res.type('text/plain').send(`# Rekha
 
-> Free daily Choghadiya, Rahu Kaal and Panchang for Indian and Southeast Asian cities, a Vedic kundli, daily rashi horoscopes, and AI palm and face reading. Timings are calculated from each city's local sunrise and verified against a reference almanac.
+> Rekha (rekha.io) is a free web app for Hindu timekeeping and astrology: daily Choghadiya, Rahu Kaal, Hora and Panchang calculated from each city's local sunrise, a Vedic kundli (birth chart) with dasha and Sade Sati, kundli matching (36 gun), a daily Moon-sign horoscope, and AI palm and face reading. It works in ${live.length + 1} languages and installs as an app from the browser.
+
+Key facts:
+- Timings use the sunrise and sunset of the chosen city, sidereal positions with Lahiri ayanamsa, and the Hindu day running from sunrise to sunrise. They were checked against a reference almanac (Drik Panchang) for sample cities.
+- Daily pages cover ${CITY.length} cities in India, Southeast Asia, the Gulf and elsewhere; the app itself searches about 7,000 cities worldwide.
+- Free: timings, Panchang, festival calendar, kundli, matching score, daily horoscope, one palm scan and a short AI reading a month. Premium (Solo, Couple, Family) adds personal day ratings, daily AI guidance and full readings; prices are set per country (in India from ₹${india.amount} a month).
+- Face reading runs on the user's phone; only measurements are sent. Palm photos are deleted after reading.
+- Content is for entertainment and self-reflection, not medical, legal or financial advice.
 
 ## Daily pages
-- [Choghadiya today by city](${base}/choghadiya)
-- [Rahu Kaal today by city](${base}/rahu-kaal)
-- [Panchang today by city](${base}/panchang)
-- [Daily horoscope by rashi](${base}/horoscope)
+- [Choghadiya today by city](${base}/choghadiya): Amrit, Shubh, Labh, Char, Udveg, Kaal and Rog periods for the day and night
+- [Rahu Kaal today by city](${base}/rahu-kaal): Rahu Kaal, Yamaganda, Gulika, Dur Muhurtam and Abhijit Muhurat
+- [Panchang today by city](${base}/panchang): tithi, nakshatra, yoga, karana, vara, month, sunrise, moonrise and festivals
+- [Daily horoscope by rashi](${base}/horoscope): all 12 Moon signs, with love, career, money and energy ratings
+- Example: [Choghadiya today in Mumbai](${base}/choghadiya/mumbai), [Panchang today in Ahmedabad](${base}/panchang/ahmedabad)
 
-## Guides
-${ARTICLES.map((a) => `- [${a.h1}](${base}/insights/${a.slug}): ${a.description}`).join('\n')}
-${others.length ? `
-## Other languages
-${others.map((l) => `- [${LANGS[l].english}](${base}${localePath(l, '/')})`).join('\n')}
+${byCat.map(([cat, list]) => `## Guides: ${cat}\n${list.map((a) => `- [${a.h1}](${base}/insights/${a.slug}): ${a.description}`).join('\n')}`).join('\n\n')}
+${live.length ? `
+## Languages
+Every page also exists in ${live.map((l) => LANGS[l].english).join(', ')}, at ${base}/<code>/... (for example ${base}/hi/choghadiya/mumbai). English is at the root.
+${live.map((l) => `- [${LANGS[l].english} (${LANGS[l].name})](${base}${localePath(l, '/')})`).join('\n')}
 ` : ''}
 ## App
-- [Open the free app](${base}/): personal best times, kundli, matching, palm and face reading.
+- [Open the free app](${base}/): personal best times for an activity, kundli, matching, palm and face reading
+- [Full text of all guides](${base}/llms-full.txt)
+- [Sitemap](${base}/sitemap.xml)
+
+## Optional
+- [Privacy policy](${base}/privacy)
+- [Terms of use](${base}/terms)
 `);
+  });
+
+  // The full text of every English guide in one file, for AI assistants that read it whole.
+  app.get('/llms-full.txt', (req, res) => {
+    const base = baseOf(req);
+    res.set('Cache-Control', 'public, max-age=3600');
+    res.type('text/plain').send(`# Rekha guides: full text\n\nSource: ${base}/insights. Updated ${UPDATED}. For entertainment and self-reflection; traditions differ between regions and schools.\n\n${ARTICLES.map((a) => `---\n\n# ${a.h1}\n\nURL: ${base}/insights/${a.slug}\n\n${a.body.trim()}\n\n${(a.faq || []).map(([q, ans]) => `### ${q}\n${ans}`).join('\n\n')}`).join('\n\n')}\n`);
   });
 }

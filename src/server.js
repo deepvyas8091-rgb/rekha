@@ -4,6 +4,7 @@ import compression from 'compression';
 import crypto from 'node:crypto';
 import multer from 'multer';
 import path from 'node:path';
+import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import {
   panchang, goodBadTimes, monthCalendar, birthProfile, gunMilan, thaiColourOfDay, ACTIVITIES,
@@ -475,6 +476,21 @@ app.get(['/', '/index.html'], (req, res) => {
   const base = (process.env.PUBLIC_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
   res.set('Cache-Control', 'no-cache');
   res.type('html').send(renderShell(req.lang, base));
+});
+
+// Privacy and terms: static drafts with an absolute canonical. They stay out of search
+// results until LEGAL_PAGES_FINAL=1 says the lawyer-reviewed text is in place.
+const legalCache = {};
+app.get(['/privacy', '/terms'], (req, res, next) => {
+  if (req.lang !== 'en') return res.redirect(301, req.path);
+  try {
+    const file = path.join(__dirname, '..', 'public', `${req.path.slice(1)}.html`);
+    legalCache[file] ||= fs.readFileSync(file, 'utf8');
+    const base = (process.env.PUBLIC_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
+    res.type('html').send(legalCache[file]
+      .replace(/<link rel="canonical" href="\/(privacy|terms)">/, `<link rel="canonical" href="${base}/$1">`)
+      .replace('<!--ROBOTS-->', process.env.LEGAL_PAGES_FINAL === '1' ? '' : '<meta name="robots" content="noindex, follow">'));
+  } catch (e) { next(e); }
 });
 
 app.locals.horoscopeFor = horoscopeFor;

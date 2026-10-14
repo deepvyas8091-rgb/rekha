@@ -112,6 +112,9 @@ function bindUi() {
     if (e.target.open) $$('#langMenu a[hreflang]').forEach((a) => { a.href = pathFor(a.dataset.l) + location.search; });
   });
   $$('dialog [data-close]').forEach((b) => b.addEventListener('click', () => b.closest('dialog').close()));
+  // Tap outside a sheet (on the dimmed backdrop) to close it.
+  $$('dialog.sheet').forEach((dlg) => dlg.addEventListener('click', (e) => { if (e.target === dlg) dlg.close(); }));
+  $('#signinDlg').addEventListener('close', () => { state.pendingPlan = null; });
   $('#placeBtn').addEventListener('click', () => $('#placeDlg').showModal());
   $('#placeDlg').addEventListener('close', () => { if ($('#placeDlg').returnValue === 'ok') setPlace(placeOf($('#placeSel').value)); });
   $('#gpsBtn').addEventListener('click', () => navigator.geolocation?.getCurrentPosition((p) => {
@@ -140,7 +143,7 @@ function bindUi() {
   $('#devForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     await post('/api/auth/dev', { email: e.target.email.value || 'tester@example.com' });
-    $('#signinDlg').close(); await afterSignin();
+    const pending = state.pendingPlan; $('#signinDlg').close(); await afterSignin(pending);
   });
 }
 
@@ -213,8 +216,10 @@ function bindAuth() {
     btn.disabled = true;
     try {
       await post(path, body);
-      $('#signinDlg').close(); f.reset(); await afterSignin();
-      toast(path.endsWith('signup') ? t('Welcome to Rekha!') : t('Welcome back!'));
+      const pending = state.pendingPlan;
+      $('#signinDlg').close(); f.reset();
+      if (!pending) toast(path.endsWith('signup') ? t('Welcome to Rekha!') : t('Welcome back!'));
+      await afterSignin(pending);
     } catch (err) {
       authError(err.message);
       if (err.code === 'exists') { authMode('login'); authError(err.message); $('#loginForm [name=phone]').value = body.phone; }
@@ -224,32 +229,49 @@ function bindAuth() {
   $('#signupForm').addEventListener('submit', submit('/api/auth/signup'));
   $('#forgotBtn').addEventListener('click', () => authError(t('Forgot your password? Message us on WhatsApp from your registered number and we will reset it for you. If you used Google before, you can also continue with Google below.')));
 }
-async function openSignin(why, mode = 'login') {
-  $('#signinMsg').textContent = why || t("Save your family's profiles and unlock AI readings.");
+// Sign-in. When it starts from a plan (state.pendingPlan), the sheet shows the chosen plan and the
+// step bar, opens on "Create account", and payment starts straight after (see afterSignin).
+async function openSignin(why, mode) {
+  const plan = state.pendingPlan;
+  $('#signinMsg').textContent = why || (plan ? t('Create a free account or log in. Your plan is saved to it, then you go straight to payment.') : t("Save your family's profiles and unlock AI readings."));
+  $('#signinSteps').hidden = !plan;
+  $('#signinPlan').hidden = !plan;
+  if (plan) {
+    $('#signinPlan').innerHTML = `<span>${esc(t('{plan} plan', { plan: t(PLAN_NAME[plan]) }))} · <strong>${priceText(plan)}</strong></span><button type="button" class="linkish" id="changePlan">${esc(t('Change'))}</button>`;
+    $('#changePlan').addEventListener('click', () => { const k = state.pendingPlan; $('#signinDlg').close(); openPlans(null, k); });
+  }
   $('#devForm').hidden = !state.meta.devLogin;
-  authMode(mode);
+  authMode(mode || (plan || local.get('seenBefore') !== true ? 'signup' : 'login'));
   if (!$('#signinDlg').open) $('#signinDlg').showModal();
   const hasGoogle = !!state.meta.googleClientId;
-  $('#googleOr').hidden = !hasGoogle && !state.meta.devLogin;
+  $('#googleOr').hidden = !hasGoogle;
   if (!hasGoogle) { $('#gsiBtn').innerHTML = ''; return; }
   try {
     await loadGsi();
     google.accounts.id.initialize({
       client_id: state.meta.googleClientId,
       callback: async ({ credential }) => {
-        try { await post('/api/auth/google', { credential }); $('#signinDlg').close(); await afterSignin(); } catch (e) { authError(e.message); }
+        try { await post('/api/auth/google', { credential }); const pending = state.pendingPlan; $('#signinDlg').close(); await afterSignin(pending); } catch (e) { authError(e.message); }
       },
     });
-    google.accounts.id.renderButton($('#gsiBtn'), { theme: 'outline', size: 'large', shape: 'pill', text: 'continue_with', width: 300, locale: lang });
+    const w = Math.min(360, Math.max(240, $('#signinDlg .sheet-body').clientWidth - 8));
+    google.accounts.id.renderButton($('#gsiBtn'), { theme: 'outline', size: 'large', shape: 'pill', text: plan ? 'continue_with' : 'signin_with', width: w, locale: lang });
   } catch { authError(t('Could not load Google sign-in. You can still use your mobile number.')); }
 }
-async function afterSignin() {
+async function afterSignin(plan = null) {
+  local.set('seenBefore', true);
   await refreshMe();
   // Move a chart made before signing in into the account.
   if (state.guestBirth && !profiles().length) {
     try { const p = await post('/api/profiles', { name: state.guestBirth.name || t('Me'), relation: 'self', birth: state.guestBirth }); state.profileId = p.id; await refreshMe(); } catch { /* plan limit */ }
   }
   loadToday();
+  // Came from a plan: continue to payment without asking again.
+  if (plan) {
+    if (state.me.plan?.key === plan) { toast(t('You are already on this plan.')); return; }
+    toast(t('Account ready. Taking you to payment…'));
+    subscribe(plan, { skipConfirm: true });
+  }
 }
 
 // ---------- plans + checkout ----------
@@ -259,26 +281,45 @@ function loadPricing() {
   pricingP ||= api(`/api/pricing?${qs({ tz: Intl.DateTimeFormat().resolvedOptions().timeZone })}`).then((p) => { state.pricing = p; return p; }).catch(() => null);
   return pricingP;
 }
-async function openPlans(why) {
+// Step 1 of 3: pick a plan. One list of features (they are the same for every plan),
+// compact plan cards, and one button that goes to sign-up or straight to payment.
+async function openPlans(why, preselect) {
   await loadPricing();
-  const priced = state.pricing?.plans || {};
+  const cur = state.me.plan?.key || 'free';
+  const signed = !!state.me.user;
   $('#plansNote').textContent = state.pricing?.country === 'IN' || !state.pricing
     ? t('Prices include GST. Cancel anytime; you keep access until the month you paid for ends.')
     : t('Cancel anytime; you keep access until the period you paid for ends.');
   $('#plansCountry').textContent = state.pricing ? t('Prices for {country}', { country: regionName(state.pricing.country) }) : '';
   $('#plansWhy').textContent = why || t('Free tools stay free. Premium adds your personal times, daily guidance and full readings.');
-  const cur = state.me.plan?.key || 'free';
-  $('#plansList').innerHTML = state.meta.plans.filter((p) => p.key !== 'free').map((p) => `
-    <div class="plan${cur === p.key ? ' current' : ''}${p.key === 'couple' ? ' popular' : ''}">
-      ${p.key === 'couple' ? `<span class="tag">${esc(t('Most popular'))}</span>` : ''}
-      <h3>${esc(t(p.name))}</h3>
-      <div class="price">${priceHtml({ ...p, price: priced[p.key] || p.price })}</div>
-      <ul>${p.features.slice(0, 4).map((f) => `<li>${esc(d(f))}</li>`).join('')}</ul>
-      <button class="primary" data-plan="${p.key}" ${cur === p.key ? 'disabled' : ''}>${esc(cur === p.key ? t('Your plan') : cur === 'free' ? t('Start {plan}', { plan: t(p.name) }) : t('Switch to {plan}', { plan: t(p.name) }))}</button>
-    </div>`).join('');
-  $$('#plansList [data-plan]').forEach((b) => b.addEventListener('click', () => subscribe(b.dataset.plan)));
+  $('#plansSteps').innerHTML = `<li class="on">${esc(t('Plan'))}</li><li${signed ? ' class="done"' : ''}>${esc(t('Account'))}</li><li>${esc(t('Payment'))}</li>`;
+  const paid = state.meta.plans.filter((p) => p.key !== 'free');
+  const pick = preselect || (cur !== 'free' ? paid.find((p) => p.key !== cur)?.key : 'couple');
+  $('#plansList').innerHTML = paid.map((p) => `
+    <label class="plan-opt${cur === p.key ? ' current' : ''}">
+      <input type="radio" name="plan" value="${p.key}"${p.key === pick ? ' checked' : ''}${cur === p.key ? ' disabled' : ''}>
+      <span><strong>${esc(t(p.name))}</strong><small>${esc(cur === p.key ? t('Your plan') : t(p.profiles === 1 ? '{n} profile' : '{n} profiles', { n: p.profiles }))}</small></span>
+      <span class="amt">${priceHtml({ ...p, price: state.pricing?.plans?.[p.key] || p.price })}</span>
+      ${p.key === 'couple' ? `<span class="badge">${esc(t('Most popular'))}</span>` : ''}
+    </label>`).join('');
+  $('#planFeatures').innerHTML = (paid[0]?.features || []).slice(1).map((f) => `<li>${esc(d(f))}</li>`).join('');
+  const go = $('#planGo');
+  const label = () => {
+    const k = $('#plansList input:checked')?.value;
+    go.disabled = !k;
+    go.textContent = !k ? t('Your plan') : !signed ? t('Continue with {plan}', { plan: t(PLAN_NAME[k]) })
+      : cur === 'free' ? t('Pay for {plan}', { plan: t(PLAN_NAME[k]) }) : t('Switch to {plan}', { plan: t(PLAN_NAME[k]) });
+  };
+  $$('#plansList input').forEach((r) => r.addEventListener('change', label));
+  label();
+  go.onclick = () => { const k = $('#plansList input:checked')?.value; if (k) subscribe(k); };
   if (!$('#plansDlg').open) $('#plansDlg').showModal();
 }
+const priceText = (plan) => {
+  const pr = state.pricing?.plans?.[plan];
+  const p = state.meta.plans.find((x) => x.key === plan);
+  return priceHtml({ ...p, price: pr || p?.price }).replace(/<[^>]+>/g, '');
+};
 // Price as the payment provider has it (Stripe can be any currency or interval), else the ₹ default.
 function priceHtml(p) {
   const pr = p.price;
@@ -296,13 +337,15 @@ function loadRazorpay() {
   });
   return rzpLoaded;
 }
-async function subscribe(plan) {
-  if (!state.me.user) { $('#plansDlg').close(); openSignin(t('Sign in first so your plan is saved to your account.')); return; }
+async function subscribe(plan, { skipConfirm = false } = {}) {
+  // Not signed in: remember the plan, sign up, and payment starts by itself afterwards.
+  if (!state.me.user) { state.pendingPlan = plan; $('#plansDlg').close(); openSignin(); return; }
+  const go = $('#planGo'); go.disabled = true;
   try {
     const switchMsg = state.meta.billing === 'stripe'
       ? t('Your plan changes now. The price difference for the rest of this period is charged or credited. Continue?')
       : t('Switching starts a new monthly plan today and ends your current one. Continue?');
-    if (state.me.plan?.key !== 'free' && !confirm(switchMsg)) return;
+    if (!skipConfirm && state.me.plan?.key !== 'free' && !confirm(switchMsg)) return;
     const s = await post('/api/billing/subscribe', { plan, lang, tz: Intl.DateTimeFormat().resolvedOptions().timeZone });
     // Stripe: plan changes happen straight away; new subscriptions go to Stripe's payment page.
     if (s.changed) { $('#plansDlg').close(); await refreshMe(); loadToday(); toast(t('Welcome to {plan}!', { plan: t(PLAN_NAME[s.plan] || s.plan) })); return; }
@@ -317,7 +360,7 @@ async function subscribe(plan) {
     });
     rzp.on('payment.failed', (r) => alert(r.error?.description || t('Payment failed. You have not been charged.')));
     rzp.open();
-  } catch (e) { if (e.status !== 402) alert(e.message); }
+  } catch (e) { if (e.status !== 402) alert(e.message); } finally { go.disabled = false; }
 }
 
 const PLAN_NAME = { solo: N('Solo'), couple: N('Couple'), family: N('Family') };

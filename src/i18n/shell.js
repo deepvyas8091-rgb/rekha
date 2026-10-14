@@ -64,7 +64,7 @@ export function renderShell(lang, base) {
     .replace(/aria-label="([^"]*)"/, (m, v) => (/data-i18n-aria/.test(tagHtml) ? `aria-label="${esc(tr(decode(v)))}"` : m)));
 
   const title = t(lang, 'Rekha: Choghadiya, Kundli, Palm and Face Reading');
-  const desc = t(lang, "Today's Choghadiya, Rahu Kaal and best times, your kundli, AI palm and face reading in your language. Free tools, family plans from ₹49 a month.");
+  const desc = t(lang, "Today's Choghadiya, Rahu Kaal and best times, your kundli, AI palm and face reading in your language. Free tools, with premium plans for you or your whole family.");
   const ready = readyLangs();
   const indexable = ready.includes(lang);
   const canonical = base ? `${base}${localePath(lang, '/')}` : '';

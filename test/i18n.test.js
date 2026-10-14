@@ -90,7 +90,9 @@ test('translation job: fake model, only missing strings, placeholders checked, a
       create: async (params) => {
         calls.push(params);
         const items = JSON.parse(params.messages[0].content.split('\n').slice(1).join('\n'));
-        const out = items.map((s, i) => (i === 3 && !params.messages[0].content.includes('article') ? 'broken {nope}' : `TA:${s}`));
+        // Item 3 loses a placeholder, item 5 comes back in Hindi: both must be rejected.
+        const out = items.map((s, i) => (i === 3 && !params.messages[0].content.includes('article') ? 'broken {nope}'
+          : i === 5 && !params.messages[0].content.includes('article') ? 'यह हिंदी में है, तमिल में नहीं' : `தமிழ்:${s}`));
         return { usage: { input_tokens: 100, output_tokens: 100 }, content: [{ type: 'tool_use', input: { translations: out } }] };
       },
     },
@@ -118,7 +120,7 @@ test('translation job: fake model, only missing strings, placeholders checked, a
   assert.match(sitemap, new RegExp(`/ta/insights/${ARTICLES[0].slug}`));
   assert.doesNotMatch(sitemap, new RegExp(`/ta/insights/${ARTICLES[5].slug}<`));
   const art = await (await get(`/ta/insights/${ARTICLES[0].slug}`)).text();
-  assert.match(art, /<h1>TA:/);
+  assert.match(art, /<h1>தமிழ்:/);
   assert.match(art, /hreflang="ta"/);
   reader._setClient(null);
 });
@@ -134,7 +136,7 @@ test('export and import for native review; reviewed lines are never overwritten 
   i18n.invalidate();
   assert.equal(i18n.t('ta', 'Sign in'), 'உள்நுழை');
   const { putTranslations } = await import('../src/db.js');
-  putTranslations('ta', 'ui', [{ src: 'Sign in', text: 'TA:machine again' }]);
+  putTranslations('ta', 'ui', [{ src: 'Sign in', text: 'தமிழ்:machine again' }]);
   i18n.invalidate();
   assert.equal(i18n.t('ta', 'Sign in'), 'உள்நுழை');
   const status = await (await get('/api/admin/translations', { headers: admin })).json();
@@ -165,4 +167,18 @@ test('behind Cloudflare, rate limits use the visitor IP, not Cloudflare\'s', asy
   assert.equal(clientIp(req({ 'cf-connecting-ip': '49.36.1.2', 'cf-ray': 'abc-DXB' })), '49.36.1.2');
   assert.equal(clientIp(req({ 'cf-connecting-ip': '49.36.1.2' })), '172.64.0.1', 'header ignored without CF-Ray');
   assert.equal(clientIp(req({ 'cf-connecting-ip': 'x; drop', 'cf-ray': 'a' })), '172.64.0.1');
+});
+
+test('translations in the wrong script are rejected and purged', async () => {
+  const { scriptOk } = await import('../src/i18n/script.js');
+  assert.equal(scriptOk('ta', 'சௌகடியா என்றால் என்ன'), true);
+  assert.equal(scriptOk('ta', 'चौघड़िया क्या है'), false, 'Hindi is not Tamil');
+  assert.equal(scriptOk('gu', 'This sentence was never translated at all'), false);
+  assert.equal(scriptOk('gu', 'Rekha'), true, 'brand names stay');
+  assert.equal(scriptOk('vi', 'Choghadiya là gì'), true);
+  const { putTranslations, getTranslations } = await import('../src/db.js');
+  const { purgeWrongScript } = await import('../src/i18n/jobs.js');
+  putTranslations('te', 'article:what-is-choghadiya', [{ src: 'h1', text: 'चौघड़िया क्या है?', srcHash: 'x' }, { src: 'title', text: 'చౌఘడియా అంటే ఏమిటి?', srcHash: 'y' }]);
+  assert.equal(purgeWrongScript('te'), 1);
+  assert.deepEqual(getTranslations('te', 'article:what-is-choghadiya').map((r) => r.src), ['title']);
 });

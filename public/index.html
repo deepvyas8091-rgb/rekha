@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Rekha: Choghadiya, Kundli, Palm and Face Reading</title>
-  <meta name="description" content="Today's Choghadiya, Rahu Kaal and best times, your kundli, AI palm and face reading in your language. Free tools, family plans from ₹49 a month.">
+  <meta name="description" content="Today's Choghadiya, Rahu Kaal and best times, your kundli, AI palm and face reading in your language. Free tools, with premium plans for you or your whole family.">
   <!--HEAD-->
   <meta name="theme-color" content="#2b1840">
   <link rel="manifest" href="/manifest.json">
@@ -16,7 +16,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Rekha">
   <meta property="og:title" content="Rekha: Choghadiya, Kundli, Palm and Face Reading">
-  <meta property="og:description" content="Today's Choghadiya, Rahu Kaal and best times, your kundli, AI palm and face reading in your language. Free tools, family plans from ₹49 a month.">
+  <meta property="og:description" content="Today's Choghadiya, Rahu Kaal and best times, your kundli, AI palm and face reading in your language. Free tools, with premium plans for you or your whole family.">
   <meta property="og:image" content="/icons/og.png">
   <script type="application/ld+json">{"@context":"https://schema.org","@type":"WebApplication","name":"Rekha","applicationCategory":"LifestyleApplication","operatingSystem":"Android, iOS, Web","offers":[{"@type":"Offer","price":"0","priceCurrency":"INR","name":"Free"},{"@type":"Offer","price":"49","priceCurrency":"INR","name":"Solo"},{"@type":"Offer","price":"99","priceCurrency":"INR","name":"Couple"},{"@type":"Offer","price":"199","priceCurrency":"INR","name":"Family"}],"description":"Daily Choghadiya, Rahu Kaal and Panchang, Vedic kundli and matching, daily rashi horoscope, and AI palm and face reading."}</script>
 </head>
@@ -215,47 +215,53 @@
     </form>
   </dialog>
 
-  <dialog id="signinDlg">
-    <div class="form">
-      <h2 id="signinTitle" data-i18n>Log in</h2>
+  <dialog id="signinDlg" class="sheet">
+    <header class="sheet-head"><h2 id="signinTitle" data-i18n>Log in</h2><button type="button" class="x" data-close aria-label="Close" data-i18n-aria>×</button></header>
+    <div class="sheet-body form">
+      <ol class="stepper" id="signinSteps" hidden><li class="done" data-i18n>Plan</li><li class="on" data-i18n>Account</li><li data-i18n>Payment</li></ol>
+      <div class="chosen" id="signinPlan" hidden></div>
       <p class="hint" id="signinMsg" data-i18n>Save your family's profiles and unlock AI readings.</p>
+      <div id="gsiBtn" class="gsi"></div>
+      <div class="or" id="googleOr"><span data-i18n>or use your mobile number</span></div>
       <div class="seg wide" role="tablist">
-        <button type="button" data-auth="login" class="on" data-i18n>Log in</button>
         <button type="button" data-auth="signup" data-i18n>Create account</button>
+        <button type="button" data-auth="login" class="on" data-i18n>Log in</button>
       </div>
       <form id="loginForm" class="form" autocomplete="on">
         <label><span data-i18n>Mobile number</span>
           <span class="phone"><select name="countryCode" aria-label="Country code" data-i18n-aria></select><input name="phone" type="tel" inputmode="numeric" autocomplete="tel-national" placeholder="98765 43210" required></span></label>
         <label><span data-i18n>Password</span> <input name="password" type="password" autocomplete="current-password" required minlength="8"></label>
-        <button class="primary" data-i18n>Log in</button>
+        <button class="primary block" data-i18n>Log in</button>
         <button type="button" class="linkish" id="forgotBtn" data-i18n>Forgot password?</button>
       </form>
       <form id="signupForm" class="form" autocomplete="on" hidden>
         <label><span data-i18n>Your name</span> <input name="name" autocomplete="given-name" required maxlength="40"></label>
         <label><span data-i18n>Mobile number</span>
           <span class="phone"><select name="countryCode" aria-label="Country code" data-i18n-aria></select><input name="phone" type="tel" inputmode="numeric" autocomplete="tel-national" placeholder="98765 43210" required></span></label>
-        <label><span data-i18n>Email (optional)</span> <input name="email" type="email" autocomplete="email"></label>
         <label><span data-i18n>Password</span> <input name="password" type="password" autocomplete="new-password" required minlength="8" placeholder="At least 8 characters" data-i18n-ph></label>
-        <button class="primary" data-i18n>Create account</button>
-        <p class="hint" data-i18n-html>By continuing you agree to our <a href="/terms" target="_blank">Terms</a> and <a href="/privacy" target="_blank">Privacy policy</a>.</p>
+        <details class="more"><summary data-i18n>Add email (optional)</summary><input name="email" type="email" autocomplete="email" aria-label="Email (optional)" data-i18n-aria></details>
+        <button class="primary block" data-i18n>Create account</button>
+        <p class="hint small" data-i18n-html>By continuing you agree to our <a href="/terms" target="_blank">Terms</a> and <a href="/privacy" target="_blank">Privacy policy</a>.</p>
       </form>
-      <div class="or" id="googleOr"><span data-i18n>or</span></div>
-      <div id="gsiBtn"></div>
       <form id="devForm" class="two" hidden><input name="email" type="email" placeholder="test@example.com" aria-label="Test email"><button class="ghost">Test sign-in</button></form>
       <p class="q-bad form-error" id="authError" hidden></p>
-      <button type="button" class="ghost" data-close data-i18n>Not now</button>
     </div>
   </dialog>
 
-  <dialog id="plansDlg">
-    <div class="form">
-      <h2 id="plansTitle" data-i18n>Choose your plan</h2>
+  <dialog id="plansDlg" class="sheet">
+    <header class="sheet-head"><h2 id="plansTitle" data-i18n>Choose your plan</h2><button type="button" class="x" data-close aria-label="Close" data-i18n-aria>×</button></header>
+    <div class="sheet-body">
+      <ol class="stepper" id="plansSteps"><li class="on" data-i18n>Plan</li><li data-i18n>Account</li><li data-i18n>Payment</li></ol>
       <p class="hint" id="plansWhy"></p>
-      <div id="plansList" class="plans"></div>
-      <p class="hint" id="plansNote"></p>
-      <p class="hint" id="plansCountry"></p>
-      <button type="button" class="ghost" data-close data-i18n>Maybe later</button>
+      <div id="plansList" class="plan-pick" role="radiogroup" aria-labelledby="plansTitle"></div>
+      <h3 class="feat-title" data-i18n>Every plan includes</h3>
+      <ul class="plan-features" id="planFeatures"></ul>
     </div>
+    <footer class="sheet-foot">
+      <button type="button" class="primary block" id="planGo"></button>
+      <p class="hint small" id="plansNote"></p>
+      <p class="hint small" id="plansCountry"></p>
+    </footer>
   </dialog>
 
   <dialog id="iosDlg">
