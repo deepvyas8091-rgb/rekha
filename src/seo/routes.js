@@ -320,8 +320,9 @@ export function seoRoutes(app) {
         const sign = signName(i); const day = pretty(date, lang);
         const bar = (l, n) => `<div class="score-row"><span>${esc(l)}</span><span class="meter-bar" aria-hidden="true"><i style="width:${n * 20}%"></i></span><b>${n}/5</b></div>`;
         const colours = h.lucky.colour.map(dt).join(` ${tt('or')} `);
+        const summary = String(h.text || '').trim().split(/(?<=[.!?।])\s+/).slice(0, 2).join(' ');
         const faq = [
-          [tt("What is today's horoscope for {sign}?", { sign }), h.text.split(/(?<=[.!?।])\s+/).slice(0, 2).join(' ')],
+          ...(summary ? [[tt("What is today's horoscope for {sign}?", { sign }), summary]] : []),
           [tt('What is the lucky colour for {sign} today?', { sign }), tt('{colours}. Lucky number: {n}.', { colours, n: h.lucky.number })],
         ];
         html = page({

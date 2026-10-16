@@ -175,3 +175,20 @@ test('see before you pay: palm lines and a short reading work without an account
   // Nothing to read without birth details.
   assert.equal((await post({ profileId: 'x' })).status, 401);
 });
+
+test('an empty AI answer is never shown or cached: the calculated horoscope is used instead', async () => {
+  const { horoscopeFor } = await import('../src/server.js');
+  const empty = { messages: { create: async () => ({ usage: { input_tokens: 10, output_tokens: 0 }, stop_reason: 'end_turn', content: [{ type: 'text', text: '  \n' }] }) } };
+  reader._setClient(empty);
+  try {
+    const h = await horoscopeFor(7, 'en', '2026-10-16');
+    assert.equal(h.ai, false);
+    assert.ok(h.text.trim().length > 50, 'rules-based text instead of a blank');
+    assert.equal(store.getHoroscope('2026-10-16', 7, 'en'), undefined, 'nothing cached, so AI is tried again');
+    await assert.rejects(() => reader.narrate({ kind: 'daily', facts: {} }), { code: 'ai_empty' });
+  } finally { reader._setClient(fake); }
+  await new Promise((r) => setTimeout(r, 1100)); // let the in-flight entry clear
+  const again = await horoscopeFor(7, 'en', '2026-10-16');
+  assert.equal(again.ai, true);
+  assert.match(again.text, /^Reading/);
+});

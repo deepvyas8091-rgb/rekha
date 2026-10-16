@@ -157,7 +157,7 @@ const BRIEFS = {
   match: 'Explain this compatibility result in 250 to 350 words: strengths first, then doshas calmly with the note that an expert can review cancellation rules.',
 };
 // Output caps sized for the word targets, with room for Indic scripts.
-const MAX_OUT = { teaser: 600, full: 1500, daily: 400, match: 900, horoscope: 500 };
+const MAX_OUT = { teaser: 600, full: 1500, daily: 600, match: 900, horoscope: 800 };
 
 /** Turn deterministic facts into a narrated report in the user's language. */
 export async function narrate({ kind, facts, language = 'en', name, paid = false }) {
@@ -179,7 +179,13 @@ export async function narrate({ kind, facts, language = 'en', name, paid = false
     }],
   });
   track(`narrate-${kind}`, model, res.usage);
-  return res.content.filter((c) => c.type === 'text').map((c) => c.text).join('\n');
+  const text = res.content.filter((c) => c.type === 'text').map((c) => c.text).join('\n').trim();
+  // Never pass on an empty answer (it would be shown, and cached, as a blank reading).
+  if (!text) {
+    console.warn(`AI returned no text for ${kind} (${model}): stop_reason=${res.stop_reason}, blocks=${res.content.map((c) => c.type).join(',') || 'none'}`);
+    throw Object.assign(new Error('The reading could not be written just now. Please try again.'), { status: 503, code: 'ai_empty' });
+  }
+  return text;
 }
 
 // Readings that show their working: the model writes sections and cites the fact ids

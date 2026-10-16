@@ -106,6 +106,9 @@ db.exec(`CREATE TABLE IF NOT EXISTS horoscope_cache (
   date TEXT NOT NULL, sign INTEGER NOT NULL, lang TEXT NOT NULL, text TEXT NOT NULL,
   PRIMARY KEY (date, sign, lang)
 )`);
+// Blank texts saved by an earlier version: remove them so they are written again.
+db.exec("DELETE FROM horoscope_cache WHERE TRIM(text) = ''");
+db.exec("DELETE FROM daily_cache WHERE TRIM(text) = ''");
 
 // Translations. ns 'ui' holds short strings keyed by their English text; 'article:<slug>'
 // holds one row per article field, with a hash of the English so edits are re-translated.
@@ -161,6 +164,7 @@ export const findUsers = (q) => all(`SELECT id, name, email, phone, plan, plan_s
   WHERE phone LIKE ? OR email LIKE ? OR name LIKE ? ORDER BY created_at DESC LIMIT 20`, `%${q}%`, `%${q}%`, `%${q}%`);
 export const getHoroscope = (date, sign, lang) => one('SELECT text FROM horoscope_cache WHERE date = ? AND sign = ? AND lang = ?', date, sign, lang)?.text;
 export function putHoroscope(date, sign, lang, text) {
+  if (!String(text || '').trim()) return;
   run('INSERT OR REPLACE INTO horoscope_cache VALUES (?, ?, ?, ?)', date, sign, lang, text);
   run('DELETE FROM horoscope_cache WHERE date < ?', new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10));
 }

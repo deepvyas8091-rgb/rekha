@@ -283,7 +283,7 @@ const inflight = new Map();
 export async function horoscopeFor(sign, lang = 'en', date = today('Asia/Kolkata')) {
   const h = dailyHoroscope(date, sign);
   const cached = store.getHoroscope(date, sign, lang);
-  if (cached) return { ...h, text: cached, ai: true };
+  if (cached?.trim()) return { ...h, text: cached, ai: true };
   const key = `${date}:${sign}:${lang}`;
   if (!inflight.has(key)) {
     inflight.set(key, (async () => {
@@ -293,7 +293,11 @@ export async function horoscopeFor(sign, lang = 'en', date = today('Asia/Kolkata
         const text = await narrate({ kind: 'horoscope', facts, language: lang });
         store.putHoroscope(date, sign, lang, text);
         return { text, ai: true };
-      } catch { return { text: horoscopeText(h), ai: false }; } finally { setTimeout(() => inflight.delete(key), 1000); }
+      } catch (e) {
+        // AI off, paused or empty: the calculated (rules-based) text, not cached, so AI is tried again next time.
+        if (e.code !== 'ai_paused') console.warn(`Horoscope ${key}: using calculated text (${e.message})`);
+        return { text: horoscopeText(h), ai: false };
+      } finally { setTimeout(() => inflight.delete(key), 1000); }
     })());
   }
   return { ...h, ...(await inflight.get(key)) };
