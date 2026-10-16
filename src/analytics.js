@@ -19,8 +19,16 @@ export const EVENTS = ['app_open', 'page_view', 'alerts_on', 'app_installed', 'p
   'sign_up', 'login', 'plans_view', 'checkout_start', 'purchase', 'share_timings', 'calendar_add', 'muhurat_search',
   'invite_created', 'invite_opened', 'invite_completed', 'ask_question', 'question_chip', 'quickstart_done', 'email_signup', 'month_ahead_view'];
 const KNOWN = new Set(EVENTS);
-const GA = () => (/^G-[A-Z0-9]{4,20}$/.test(process.env.GA4_MEASUREMENT_ID || '') ? process.env.GA4_MEASUREMENT_ID : null);
-const CLARITY = () => (/^[a-z0-9]{6,20}$/i.test(process.env.CLARITY_PROJECT_ID || '') ? process.env.CLARITY_PROJECT_ID : null);
+// Forgiving about how the value was pasted into Railway: spaces, quotes, lowercase, a full snippet.
+const clean = (v) => String(v || '').trim().replace(/^["'`]+|["'`]+$/g, '').trim();
+const GA = () => { const m = clean(process.env.GA4_MEASUREMENT_ID).toUpperCase().match(/\bG-[A-Z0-9]{4,20}\b/); return m ? m[0] : null; };
+const CLARITY = () => { const v = clean(process.env.CLARITY_PROJECT_ID); const m = v.match(/clarity\.ms\/tag\/([a-z0-9]{6,20})/i) || v.match(/^([a-z0-9]{6,20})$/i); return m ? m[1].toLowerCase() : null; };
+/** What the dashboard shows: is each tag on, and if a value was set but not understood. */
+export function analyticsStatus() {
+  const raw = (k) => (process.env[k] ? 'set but not understood' : 'not set');
+  return { ga4: GA() || raw('GA4_MEASUREMENT_ID'), clarity: CLARITY() || raw('CLARITY_PROJECT_ID') };
+}
+{ const st = analyticsStatus(); console.log(`[analytics] GA4: ${st.ga4} · Clarity: ${st.clarity}`); }
 
 /** <head> scripts: consent default, the rk() event helper, and GA4 / Clarity loaded when idle. */
 export function analyticsHead() {
@@ -88,5 +96,5 @@ export function analyticsRoutes(app, { isAdmin, limit }) {
     prune();
     res.status(204).end();
   });
-  app.get('/api/admin/funnel', (req, res) => (isAdmin(req) ? res.json(funnel(Math.min(90, Math.max(7, +req.query.days || 30)))) : res.status(403).json({ error: 'forbidden' })));
+  app.get('/api/admin/funnel', (req, res) => (isAdmin(req) ? res.json({ ...funnel(Math.min(90, Math.max(7, +req.query.days || 30))), tags: analyticsStatus() }) : res.status(403).json({ error: 'forbidden' })));
 }

@@ -79,6 +79,12 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 6 *
 
 // ---- helpers -------------------------------------------------------------
 const today = (tz) => new Intl.DateTimeFormat('en-CA', { timeZone: tz }).format(new Date());
+/** Seconds from now until the next of the given local clock times (HH:MM) in tz. */
+function secsUntil(tz, times) {
+  const [h, m, sec] = new Intl.DateTimeFormat('en-GB', { timeZone: tz, hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' }).format(new Date()).split(':').map(Number);
+  const now = h * 3600 + m * 60 + sec;
+  return Math.min(...times.filter(Boolean).map((t) => { const [a, b] = t.split(':').map(Number); const x = a * 3600 + b * 60 - now; return x > 0 ? x : x + 86400; }));
+}
 const httpError = (status, message, code) => Object.assign(new Error(message), { status, code });
 const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 function place(q) {
@@ -288,16 +294,22 @@ app.get('/api/timings', wrap(async (req, res) => {
   const { opts, locked } = personalOpts(req);
   opts.activities = (req.query.activities || 'general').split(',').filter((a) => ACTIVITIES.includes(a));
   opts.now = req.query.now || new Date().toISOString();
-  let date = req.query.date || today(p.tz);
-  let out = goodBadTimes(date, p.lat, p.lon, p.tz, opts);
-  // Before sunrise we are still in the previous Hindu day (its night choghadiya).
+  const date = req.query.date || today(p.tz);
+  const out = goodBadTimes(date, p.lat, p.lon, p.tz, opts);
+  // The calendar date always follows the visitor's clock. Between midnight and sunrise the running
+  // Choghadiya and hora still belong to the previous Hindu day (sunrise to sunrise), so those come
+  // from yesterday's night, shown on their own as "until sunrise".
   if (!req.query.date && out.current && !out.current.choghadiya) {
     const d = new Date(`${date}T12:00:00Z`); d.setUTCDate(d.getUTCDate() - 1);
-    date = d.toISOString().slice(0, 10);
-    out = goodBadTimes(date, p.lat, p.lon, p.tz, opts);
+    const prev = goodBadTimes(d.toISOString().slice(0, 10), p.lat, p.lon, p.tz, opts);
+    const afterMidnight = (x) => x.start > x.end || x.start < out.sunrise;
+    out.current = prev.current;
+    out.beforeSunrise = { weekday: prev.weekday, choghadiya: prev.choghadiya.night.filter(afterMidnight), hora: prev.hora.slice(12).filter(afterMidnight) };
   }
-  // The same for everyone in a city: browsers and the CDN may keep it briefly (personal results stay private).
-  res.set('Cache-Control', req.query.profile ? 'private, no-store' : 'public, max-age=120, s-maxage=300');
+  // The same for everyone in a city: browsers and the CDN may keep it briefly (personal results stay
+  // private), but never past the next local midnight or sunrise, when the answer changes.
+  const ttl = Math.max(15, Math.min(120, secsUntil(p.tz, ['00:00', out.sunrise])));
+  res.set('Cache-Control', req.query.profile ? 'private, no-store' : `public, max-age=${ttl}, s-maxage=${ttl}`);
   res.json({ ...out, personalLocked: locked, thaiColour: thaiColourOfDay(new Date(), p.tz) });
 }));
 
@@ -358,8 +370,12 @@ app.get('/api/horoscope', wrap(async (req, res) => {
   const sign = Number(req.query.sign);
   if (!Number.isInteger(sign) || sign < 0 || sign > 11) throw httpError(400, 'sign must be 0 to 11');
   const lang = LANGUAGES[req.query.lang] ? req.query.lang : 'en';
-  const h = await horoscopeFor(sign, lang);
-  res.set('Cache-Control', h.ai ? 'public, max-age=900, s-maxage=1800' : 'public, max-age=60');
+  // The visitor's own calendar day (falls back to India), so it turns over at their midnight.
+  let tz = 'Asia/Kolkata';
+  try { if (req.query.tz) { new Intl.DateTimeFormat('en', { timeZone: String(req.query.tz) }); tz = String(req.query.tz); } } catch { /* unknown zone */ }
+  const h = await horoscopeFor(sign, lang, today(tz));
+  const ttl = Math.max(15, Math.min(h.ai ? 900 : 60, secsUntil(tz, ['00:00'])));
+  res.set('Cache-Control', `public, max-age=${ttl}, s-maxage=${ttl}`);
   res.json(h);
 }));
 

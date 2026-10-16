@@ -167,7 +167,7 @@ function bindUi() {
   $('#profileSel').addEventListener('change', (e) => selectProfile(e.target.value));
   $('#activity').addEventListener('change', loadToday);
   $$('[data-cg]').forEach((b) => b.addEventListener('click', () => {
-    state.cgPart = b.dataset.cg; $$('[data-cg]').forEach((x) => x.classList.toggle('on', x === b)); renderChoghadiya();
+    state.cgPart = b.dataset.cg; state.cgPicked = true; $$('[data-cg]').forEach((x) => x.classList.toggle('on', x === b)); renderChoghadiya();
   }));
   $('#panchDate').addEventListener('change', () => { loadPanchang(); loadCalendar(); });
   $('#calActivity').addEventListener('change', loadCalendar);
@@ -527,10 +527,32 @@ function toast(msg) {
 }
 
 // ---------- today ----------
+// Reload Today by itself when the local date turns over or the sun rises (the app is often left open).
+let dayTimer = null;
+function watchDayChange(tm) {
+  clearInterval(dayTimer);
+  const tz = state.place.tz;
+  const stale = () => {
+    const now = new Date();
+    const date = new Intl.DateTimeFormat('en-CA', { timeZone: tz }).format(now);
+    const hm = new Intl.DateTimeFormat('en-GB', { timeZone: tz, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(now);
+    return date !== tm.date || (tm.beforeSunrise && hm >= tm.sunrise);
+  };
+  const check = () => {
+    if (state.timings !== tm || !stale()) return;
+    const date = new Intl.DateTimeFormat('en-CA', { timeZone: tz }).format(new Date());
+    if ($('#panchDate').value === tm.date && date !== tm.date) { $('#panchDate').value = date; loadPanchang(); }
+    loadToday();
+  };
+  dayTimer = setInterval(check, 60000);
+  if (!watchDayChange.bound) { watchDayChange.bound = true; document.addEventListener('visibilitychange', () => { if (!document.hidden) watchDayChange.check?.(); }); }
+  watchDayChange.check = check;
+}
 async function loadToday() {
   const prof = current();
   try {
-    const tm = await api(`/api/timings?${qs({ ...loc(), activities: $('#activity').value, profile: prof?.id })}`);
+    const day = new Intl.DateTimeFormat('en-CA', { timeZone: state.place.tz }).format(new Date());
+    const tm = await api(`/api/timings?${qs({ ...loc(), activities: $('#activity').value, profile: prof?.id, day })}`);
     state.timings = tm;
     renderNow(tm, prof);
     const wins = tm.bestWindows[$('#activity').value] || [];
@@ -539,8 +561,18 @@ async function loadToday() {
       : `<div class="card muted">${esc(t('No clean daytime window today for this activity. Check the Panchang tab for better days.'))}</div>`;
     $('#badTimes').innerHTML = tm.badTimes.map((b) => item(b, 'bad')).join('') + (tm.panchak ? `<div class="item bad"><time>${esc(t('All day'))}</time><div><strong>${esc(d('Panchak'))}</strong><small>${esc(d(tm.panchak))}</small></div></div>` : '');
     $('#goodTimes').innerHTML = tm.goodTimes.filter((g) => !g.skip).map((g) => item(g, 'good')).join('');
+    // Open on the part of the day that is running now, until the visitor picks one.
+    if (!state.cgPicked) {
+      const hm = new Intl.DateTimeFormat('en-GB', { timeZone: state.place.tz, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date());
+      state.cgPart = tm.beforeSunrise || hm >= tm.sunset ? 'night' : 'day';
+      $$('[data-cg]').forEach((x) => x.classList.toggle('on', x.dataset.cg === state.cgPart));
+    }
     renderChoghadiya();
-    $('#hora').innerHTML = tm.hora.map((h) => `<div class="item ${h.quality === 'bad' ? 'bad' : h.quality === 'good' ? 'good' : ''}${isNow(h) ? ' active' : ''}"><time>${esc(h.start)} – ${esc(h.end)}</time><div><strong>${esc(d(h.lord))}</strong><small>${esc(d(h.use))}</small></div></div>`).join('');
+    const horaRow = (h, live) => `<div class="item ${h.quality === 'bad' ? 'bad' : h.quality === 'good' ? 'good' : ''}${live && isNow(h) ? ' active' : ''}"><time>${esc(h.start)} – ${esc(h.end)}</time><div><strong>${esc(d(h.lord))}</strong><small>${esc(d(h.use))}</small></div></div>`;
+    const early = tm.beforeSunrise;
+    $('#hora').innerHTML = (early ? `<p class="hint">${esc(t('Until sunrise ({time}): the night hours of {weekday}', { time: tm.sunrise, weekday: d(early.weekday) }))}</p>${early.hora.map((h) => horaRow(h, true)).join('')}<p class="hint">${esc(t('From sunrise'))}</p>` : '')
+      + tm.hora.map((h) => horaRow(h, !early)).join('');
+    watchDayChange(tm);
     loadDaily();
     loadHoroscope();
   } catch (e) { showError($('#nowCard'), e); }
@@ -565,7 +597,8 @@ async function loadHoroscope() {
   const sign = +sel.value;
   const out = $('#horoOut');
   try {
-    const h = await api(`/api/horoscope?${qs({ sign, lang })}`);
+    const tz = state.place?.tz || Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const h = await api(`/api/horoscope?${qs({ sign, lang, tz, day: new Intl.DateTimeFormat('en-CA', { timeZone: tz }).format(new Date()) })}`);
     const bar = (label, n) => `<div class="score-row"><span>${esc(t(label))}</span><span class="meter-bar" aria-label="${esc(t('{n} out of 5', { n }))}"><i style="width:${n * 20}%"></i></span><b>${n}/5</b></div>`;
     out.innerHTML = `
       <p class="sub muted">${esc(fmtDate(h.date + 'T12:00:00', { weekday: 'long', day: 'numeric', month: 'long' }))} · ${esc(t('Moon in {sign}, house {n} from your sign', { sign: d(h.moonTransit.sign), n: h.moonTransit.house }))}</p>
@@ -582,7 +615,7 @@ function isNow(x) {
 }
 function renderNow(tm, prof) {
   const c = tm.current || {};
-  const slot = [...tm.choghadiya.day, ...tm.choghadiya.night].find((s) => s.name === c.choghadiya && isNow(s));
+  const slot = (tm.beforeSunrise ? tm.beforeSunrise.choghadiya : [...tm.choghadiya.day, ...tm.choghadiya.night]).find((s) => s.name === c.choghadiya && isNow(s));
   const bad = c.inBadPeriod?.length ? `<div><span class="pill q-bad">${esc(t('Now: {periods}', { periods: c.inBadPeriod.map(d).join(', ') }))}</span></div>` : '';
   let personal;
   if (tm.personal) personal = `<div class="sub">${esc(t('{name} day', { name: prof?.name || t('Your') }))}: <strong>${esc(d(tm.personal.dayRating))}</strong> · ${esc(t('Tara'))} ${esc(d(tm.personal.tarabalam.tara))} (${esc(d(tm.personal.tarabalam.quality))}) · ${esc(t('Moon in house {n} from your Moon sign', { n: tm.personal.chandrabalam.house }))}</div>
@@ -593,9 +626,10 @@ function renderNow(tm, prof) {
   const guess = state.placeGuess ? `<div class="place-guess"><span>${esc(state.placeGuess === 'network' ? t('Showing times for {city}, based on your network. Not right?', { city: d(state.place.name) }) : t('Showing times for {city}. Set your city for your own times.', { city: d(state.place.name) }))}</span>
     <span class="two"><button class="primary small" id="guessGps">${esc(t('Use my exact location'))}</button><button class="ghost small" id="guessPick">${esc(t('Choose city'))}</button><button class="linkish" id="guessOk">${esc(t('Yes, this is right'))}</button></span></div>` : '';
   $('#nowCard').innerHTML = `${guess}
-    <div class="sub">${esc(d(tm.weekday))} · ${esc(t('Sunrise'))} ${esc(tm.sunrise)} · ${esc(t('Sunset'))} ${esc(tm.sunset)} · ${esc(d(state.place.name))}</div>
+    <div class="sub">${esc(fmtDate(tm.date + 'T12:00:00', { weekday: 'long', day: 'numeric', month: 'long' }))} · ${esc(t('Sunrise'))} ${esc(tm.sunrise)} · ${esc(t('Sunset'))} ${esc(tm.sunset)} · ${esc(d(state.place.name))}</div>
     <div class="big">${slot ? `${esc(t('{name} choghadiya', { name: d(slot.name) }))} ${pill(slot.quality, slot.quality)}` : esc(t('Today'))}</div>
     ${slot ? `<div class="sub">${esc(slot.start)} – ${esc(slot.end)} · ${esc(d(slot.use))}${c.hora ? ` · ${esc(t('{planets} hora', { planets: d(c.hora) }))}` : ''}</div>` : ''}
+    ${tm.beforeSunrise ? `<div class="sub">${esc(t("Before sunrise the night Choghadiya of {weekday} is still running. Today's periods start at sunrise ({time}).", { weekday: d(tm.beforeSunrise.weekday), time: tm.sunrise }))}</div>` : ''}
     ${bad}${personal}
     ${tm.thaiColour ? `<div class="sub">${esc(t('Colour of the day'))}: ${esc(tm.thaiColour.wear.map(d).join(` ${t('or')} `))}</div>` : ''}`;
   $('#guessGps')?.addEventListener('click', useGps);
@@ -606,7 +640,12 @@ function renderNow(tm, prof) {
 }
 function renderChoghadiya() {
   const tm = state.timings; if (!tm) return;
-  $('#choghadiya').innerHTML = tm.choghadiya[state.cgPart].map((s) => `<div class="slot q-${esc(s.quality)}${isNow(s) ? ' active' : ''}"><time>${esc(s.start)} – ${esc(s.end)}</time><span><strong>${esc(d(s.name))}</strong><small>${esc(d(s.use))}</small></span>${pill(s.quality, s.quality)}</div>`).join('');
+  const row = (s, live) => `<div class="slot q-${esc(s.quality)}${live && isNow(s) ? ' active' : ''}"><time>${esc(s.start)} – ${esc(s.end)}</time><span><strong>${esc(d(s.name))}</strong><small>${esc(d(s.use))}</small></span>${pill(s.quality, s.quality)}</div>`;
+  const early = tm.beforeSunrise;
+  // Between midnight and sunrise: the rest of last night first (that is what is running now), then tonight.
+  $('#choghadiya').innerHTML = early && state.cgPart === 'night'
+    ? `<p class="hint">${esc(t('Until sunrise ({time}): the night Choghadiya of {weekday}', { time: tm.sunrise, weekday: d(early.weekday) }))}</p>${early.choghadiya.map((s) => row(s, true)).join('')}<p class="hint">${esc(t('Tonight, from sunset ({time})', { time: tm.sunset }))}</p>${tm.choghadiya.night.map((s) => row(s, false)).join('')}`
+    : tm.choghadiya[state.cgPart].map((s) => row(s, !early)).join('');
 }
 async function loadDaily() {
   const prof = current(); const el = $('#dailyCard');

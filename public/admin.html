@@ -114,6 +114,7 @@
       const pct = (a, b) => (b ? `${Math.round((a / b) * 100)}%` : '-');
       const steps = [['Visitors', f.visitors], ['Turned on alerts', e.alerts_on.people], ['Installed the app', e.app_installed.people], ['Free reading', e.free_reading.people], ['Signed up', e.sign_up.people], ['Opened plans', e.plans_view.people], ['Started checkout', e.checkout_start.people], ['Paid', e.purchase.people]];
       document.getElementById('funCard').innerHTML = `<h2>Funnel, last 30 days</h2>
+        <p class="muted">Tags on this server: GA4 <b>${f.tags?.ga4}</b> · Clarity <b>${f.tags?.clarity}</b></p>
         <div class="tiles">
           <div class="tile"><b>Visitors</b><span>${f.visitors}</span></div>
           <div class="tile"><b>Came back (2+ days)</b><span>${pct(f.returning, f.visitors)}</span><small class="hint">${f.returning} people</small></div>

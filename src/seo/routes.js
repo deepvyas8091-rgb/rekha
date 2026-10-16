@@ -50,8 +50,16 @@ function cached(key, ttlMs, build) {
 export const clearPageCache = () => cache.clear();
 // Browsers keep a page for maxAge; Cloudflare (s-maxage) keeps it a little longer and may serve
 // a slightly stale copy while it fetches a fresh one, so visitors never wait for the server.
+// Pages that show "today" never outlive the local midnight of their city (res.locals.tz).
+const secsToMidnight = (tz) => {
+  const [h, m, sec] = new Intl.DateTimeFormat('en-GB', { timeZone: tz, hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' }).format(new Date()).split(':').map(Number);
+  return 86400 - (h * 3600 + m * 60 + sec);
+};
 const send = (res, html, maxAge = 600) => {
-  res.set('Cache-Control', `public, max-age=${maxAge}, s-maxage=${Math.max(maxAge, Math.min(maxAge * 4, 3600))}, stale-while-revalidate=600`);
+  const left = secsToMidnight(res.locals.tz || 'Asia/Kolkata');
+  const browser = Math.max(10, Math.min(maxAge, left));
+  const edge = Math.max(10, Math.min(Math.max(maxAge, Math.min(maxAge * 4, 3600)), left));
+  res.set('Cache-Control', `public, max-age=${browser}, s-maxage=${edge}${left > 900 ? ', stale-while-revalidate=600' : ''}`);
   res.type('html').send(html);
 };
 
@@ -224,7 +232,7 @@ export function seoRoutes(app) {
   for (const offset of [0, 1]) {
     const when = offset ? '/tomorrow' : '';
     app.get(`/choghadiya/:city${when}`, (req, res, next) => {
-      const c = CITY_BY_SLUG.get(req.params.city); if (!c) return next();
+      const c = CITY_BY_SLUG.get(req.params.city); if (!c) return next(); res.locals.tz = c.tz;
       const lang = langOf(req);
       const { date, t } = dayData(c, offset);
       send(res, cached(`cg:${lang}:${c.slug}:${date}:${offset}`, 1800000, () => {
@@ -271,7 +279,7 @@ export function seoRoutes(app) {
     });
 
     app.get(`/rahu-kaal/:city${when}`, (req, res, next) => {
-      const c = CITY_BY_SLUG.get(req.params.city); if (!c) return next();
+      const c = CITY_BY_SLUG.get(req.params.city); if (!c) return next(); res.locals.tz = c.tz;
       const lang = langOf(req);
       const { date, t } = dayData(c, offset);
       send(res, cached(`rk:${lang}:${c.slug}:${date}:${offset}`, 1800000, () => {
@@ -312,7 +320,7 @@ export function seoRoutes(app) {
     });
 
     app.get(`/panchang/:city${when}`, (req, res, next) => {
-      const c = CITY_BY_SLUG.get(req.params.city); if (!c) return next();
+      const c = CITY_BY_SLUG.get(req.params.city); if (!c) return next(); res.locals.tz = c.tz;
       const lang = langOf(req);
       const { date, t, p } = dayData(c, offset);
       send(res, cached(`pc:${lang}:${c.slug}:${date}:${offset}`, 1800000, () => {
@@ -368,7 +376,7 @@ export function seoRoutes(app) {
 
   // Two months of Panchang for a city, one row per day.
   app.get('/panchang/:city/calendar', (req, res, next) => {
-    const c = CITY_BY_SLUG.get(req.params.city); if (!c) return next();
+    const c = CITY_BY_SLUG.get(req.params.city); if (!c) return next(); res.locals.tz = c.tz;
     const lang = langOf(req);
     const start = `${todayIn(c.tz).slice(0, 7)}-01`;
     send(res, cached(`pcal:${lang}:${c.slug}:${start}`, 6 * 3600000, () => {
@@ -665,7 +673,7 @@ ${files.map((f) => `<sitemap><loc>${base}/sitemaps/${f}.xml</loc><lastmod>${toda
 
   // Share images (1200 x 630) for each city page: city, date and the key time, readable in a chat preview.
   app.get('/og/:kind/:city.png', async (req, res, next) => {
-    const c = CITY_BY_SLUG.get(req.params.city); if (!c) return next();
+    const c = CITY_BY_SLUG.get(req.params.city); if (!c) return next(); res.locals.tz = c.tz;
     const kind = req.params.kind;
     const fest = kind.startsWith('festival-') ? FESTIVAL_BY_SLUG.get(kind.slice(9)) : null;
     const offset = kind.endsWith('-tomorrow') ? 1 : 0;

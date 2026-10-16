@@ -548,6 +548,11 @@ const UI = {
   "Part of your Rekha premium plan. You can turn this email off under Account.": "તમારા Rekha પ્રીમિયમ પ્લાનનો ભાગ. આ ઈમેલ તમે ખાતામાં જઈને બંધ કરી શકો છો.",
   "Your month ahead is ready": "તમારો આવતો મહિનો તૈયાર છે",
   "Best days, days to go slow and this month's festivals.": "શ્રેષ્ઠ દિવસો, ધીમે ચાલવાના દિવસો અને આ મહિનાના તહેવારો.",
+  "Until sunrise ({time}): the night hours of {weekday}": "સૂર્યોદય ({time}) સુધી: {weekday}ની રાતના હોરા",
+  "From sunrise": "સૂર્યોદયથી",
+  "Before sunrise the night Choghadiya of {weekday} is still running. Today's periods start at sunrise ({time}).": "સૂર્યોદય પહેલાં {weekday}ની રાતનું ચોઘડિયું જ ચાલે છે. આજના સમય સૂર્યોદય ({time})થી શરૂ થાય છે.",
+  "Until sunrise ({time}): the night Choghadiya of {weekday}": "સૂર્યોદય ({time}) સુધી: {weekday}ની રાતનું ચોઘડિયું",
+  "Tonight, from sunset ({time})": "આજે રાત્રે, સૂર્યાસ્ત ({time})થી",
 };
 
 export default { ...glossaryGu, ...UI };
