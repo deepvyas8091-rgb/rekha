@@ -1,0 +1,16 @@
+{
+  "paywall_and_wallet_pressure": ["recharge", "wallet", "pay", "paid", "subscribe", "subscription", "premium", "buy", "fees", "cost", "money", "looting", "monetisation", "charges", "upgrade", "minimum payment", "spend more", "extort", "\\$199"],
+  "scam_and_trust": ["scam", "fraud", "fake", "dishonest", "untrustworthy", "never trust", "bait and switch", "shady", "fear and anxiety", "pure scam"],
+  "wrong_or_generic_predictions": ["wrong", "not match", "0% accurate", "unreliable", "rubbish", "none of the numerous predictions", "generic", "scripted", "not accurate", "irrelevant"],
+  "ai_replacing_people": ["\\bai\\b", "automatic", "automatically generated"],
+  "wrong_sign_or_calculation": ["sun sign", "aquarius even though", "virgo not a leo", "always been taurus", "wrong astrological sign", "wrong calculation", "wrong kundli"],
+  "ads_and_popups": ["\\bads?\\b", "pop ups", "popups", "ad-free"],
+  "bugs_crashes_widgets": ["crash", "bugs", "widget", "not working", "doesn't tap", "doesn’t work", "not being displayed", "restore does nothing", "barely works"],
+  "scan_quality": ["scan(s|ned)? (my|it)", "too quickly", "before i was ready", "stupid fast", "doesn't really read your palm"],
+  "astrologer_behaviour": ["bad mannered", "badtameez", "toxic", "no moderation", "bias", "derogatory", "unprofessional", "illiterate"],
+  "customer_service_and_orders": ["customer service", "customer care", "refund", "ordered", "order any product", "not received", "non responsive", "bracelet"],
+  "customisation_language_location": ["customiz", "customis", "language", "location", "only few things"],
+  "privacy_and_data": ["clipboard", "personal information"],
+  "positive_depth_and_accuracy": ["precise", "comprehensive", "accurate!", "spot-on", "on point", "lot of information", "yoga and karana", "valuable information", "festivals"],
+  "positive_free_no_pressure": ["never pester", "don’t have to pay", "selfless", "free trial"]
+}

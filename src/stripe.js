@@ -9,7 +9,7 @@ import { PLANS, planOf } from './plans.js';
 import { setPlan, getUser, getUserBySubscription, getUserByStripeCustomer, setStripeCustomer, recordEvent } from './db.js';
 import { requireUser } from './auth.js';
 import { localePath } from './i18n/languages.js';
-import { TIERS, PRICE_VERSION, minorUnits, priceFor, visitorCountry } from './pricing.js';
+import { TIERS, PRICE_VERSION, minorUnits, amountOf, priceFor, visitorCountry } from './pricing.js';
 
 const SECRET = () => process.env.STRIPE_SECRET_KEY;
 const WEBHOOK_SECRET = () => process.env.STRIPE_WEBHOOK_SECRET;
@@ -50,13 +50,16 @@ function planFromPrice(price) {
   if (m) return m[1];
   return Object.keys(PLANS).find((k) => PLANS[k].envStripePrice && process.env[PLANS[k].envStripePrice] === price.id);
 }
+const intervalOf = (price) => (price?.recurring?.interval === 'year' || price?.metadata?.interval === 'year' || /_year_/.test(price?.lookup_key || '') ? 'year' : 'month');
 const tierFromPrice = (price) => price?.metadata?.tier || /^rekha_\w+?_([ABC])_/.exec(price?.lookup_key || '')?.[1] || null;
 const priceOf = (sub) => sub?.items?.data?.[0]?.price;
 
-// One Stripe product per plan and one price per plan and tier, created on first use.
+// One Stripe product per plan and one price per plan, tier and interval, created on first use.
+// Monthly keys keep their original form (rekha_solo_C_v1) so existing prices are reused.
 const priceIds = new Map();
-async function ensurePrice(plan, tier) {
-  const key = `rekha_${plan}_${tier}_v${PRICE_VERSION}`;
+export const lookupKey = (plan, tier, interval = 'month') => `rekha_${plan}_${tier}_${interval === 'year' ? 'year_' : ''}v${PRICE_VERSION}`;
+async function ensurePrice(plan, tier, interval = 'month') {
+  const key = lookupKey(plan, tier, interval);
   if (priceIds.has(key)) return priceIds.get(key);
   const found = await stripe('/prices', { 'lookup_keys[0]': key, active: 'true', limit: 1 }, 'GET');
   let id = found?.data?.[0]?.id;
@@ -67,10 +70,10 @@ async function ensurePrice(plan, tier) {
     }
     const amounts = TIERS[tier];
     const options = Object.fromEntries(Object.entries(amounts).filter(([cur]) => cur !== 'usd')
-      .map(([cur, list]) => [cur, { unit_amount: minorUnits(list[PLAN_INDEX[plan]], cur) }]));
+      .map(([cur]) => [cur, { unit_amount: minorUnits(amountOf(plan, tier, cur, interval), cur) }]));
     const price = await stripe('/prices', {
-      product: productId, currency: 'usd', unit_amount: minorUnits(amounts.usd[PLAN_INDEX[plan]], 'usd'),
-      recurring: { interval: 'month' }, lookup_key: key, metadata: { plan, tier },
+      product: productId, currency: 'usd', unit_amount: minorUnits(amountOf(plan, tier, 'usd', interval), 'usd'),
+      recurring: { interval }, lookup_key: key, metadata: { plan, tier, interval },
       currency_options: options,
     });
     id = price.id;
@@ -78,7 +81,6 @@ async function ensurePrice(plan, tier) {
   priceIds.set(key, id);
   return id;
 }
-const PLAN_INDEX = { solo: 0, couple: 1, family: 2 };
 
 // Newer Stripe API versions keep the period on the subscription item.
 const periodEnd = (sub) => (sub.current_period_end || sub.items?.data?.[0]?.current_period_end || 0) * 1000;
@@ -93,7 +95,7 @@ function applySubscription(user, sub) {
   if (!user || (user.subscription_id && user.subscription_id !== sub.id)) return false;
   const status = statusOf(sub);
   if (!status) return false;
-  setPlan(user.id, { plan: planFromPrice(priceOf(sub)) || undefined, status, renewsAt: periodEnd(sub) || undefined, subscriptionId: sub.id });
+  setPlan(user.id, { plan: planFromPrice(priceOf(sub)) || undefined, status, renewsAt: periodEnd(sub) || undefined, subscriptionId: sub.id, interval: priceOf(sub) ? intervalOf(priceOf(sub)) : undefined });
   return true;
 }
 
@@ -150,12 +152,15 @@ export function stripeJsonRoutes(app) {
       if (!PLAN_KEYS.includes(key)) throw fail(400, 'Unknown plan');
       const user = getUser(req.user.id);
       const lang = typeof req.body.lang === 'string' && /^[a-z]{2}$/.test(req.body.lang) ? req.body.lang : 'en';
+      const askedInterval = ['month', 'year'].includes(req.body.interval) ? req.body.interval : null;
 
       if (user.subscription_id && planOf(user) !== PLANS.free && ['active', 'pending'].includes(user.plan_status)) {
         const sub = await stripe(`/subscriptions/${user.subscription_id}`, null, 'GET');
         // Same tier (and so the same currency) as the current subscription.
         const tier = tierFromPrice(priceOf(sub)) || priceFor(key, visitorCountry(req, req.body.tz)).tier;
-        const price = await ensurePrice(key, tier);
+        const interval = askedInterval || intervalOf(priceOf(sub));
+        if (planFromPrice(priceOf(sub)) === key && intervalOf(priceOf(sub)) === interval) throw fail(400, 'You are already on this plan.');
+        const price = await ensurePrice(key, tier, interval);
         const updated = await stripe(`/subscriptions/${sub.id}`, {
           items: { 0: { id: sub.items.data[0].id, price } }, proration_behavior: 'always_invoice', cancel_at_period_end: false,
           metadata: { user_id: user.id, plan: key },
@@ -169,14 +174,14 @@ export function stripeJsonRoutes(app) {
         const c = await stripe('/customers', { email: user.email || undefined, name: user.name || undefined, phone: user.phone || undefined, metadata: { user_id: user.id } });
         customer = c.id; setStripeCustomer(user.id, customer);
       }
-      const local = priceFor(key, visitorCountry(req, req.body.tz));
-      const price = await ensurePrice(key, local.tier);
+      const local = priceFor(key, visitorCountry(req, req.body.tz), askedInterval || 'month');
+      const price = await ensurePrice(key, local.tier, local.interval);
       const back = `${baseUrl(req)}${localePath(lang, '/')}`;
       const session = await stripe('/checkout/sessions', {
         mode: 'subscription', customer, client_reference_id: user.id, currency: local.currency.toLowerCase(),
         line_items: { 0: { price, quantity: 1 } },
-        subscription_data: { metadata: { user_id: user.id, plan: key, country: local.country } },
-        metadata: { user_id: user.id, plan: key, country: local.country },
+        subscription_data: { metadata: { user_id: user.id, plan: key, country: local.country, interval: local.interval } },
+        metadata: { user_id: user.id, plan: key, country: local.country, interval: local.interval },
         allow_promotion_codes: 'true',
         locale: CHECKOUT_LOCALES.has(lang) ? (lang === 'tl' ? 'fil' : lang) : 'auto',
         success_url: `${back}?paid={CHECKOUT_SESSION_ID}`,

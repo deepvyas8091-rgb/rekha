@@ -117,6 +117,6 @@ function footer(lang) {
     <div><h3>${esc(tt('Horoscope today'))}</h3>${list(f.signs)}</div>
     <div><h3>${esc(tt('Learn'))}</h3>${list(f.insights.slice(0, 12))}</div>
   </div>
-  <p class="foot">${esc(tt('For entertainment and self-reflection. Not medical, legal or financial advice.'))} <a href="/privacy">${esc(tt('Privacy'))}</a> · <a href="/terms">${esc(tt('Terms'))}</a> · <a href="/insights">${esc(tt('All insights'))}</a></p>
+  <p class="foot">${esc(tt('For entertainment and self-reflection. Not medical, legal or financial advice.'))} <a href="/insights/how-rekha-works">${esc(tt('How Rekha works'))}</a> · <a href="/privacy">${esc(tt('Privacy'))}</a> · <a href="/terms">${esc(tt('Terms'))}</a> · <a href="/insights">${esc(tt('All insights'))}</a></p>
 </footer>`;
 }

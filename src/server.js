@@ -11,7 +11,8 @@ import {
 } from './engine/index.js';
 import { palmGeometry, interpretGeometry, interpretLines } from './readings/palm.js';
 import { faceGeometry, interpretFace } from './readings/face.js';
-import { extractPalmLines, narrate, ask, distressCheck, demoMode, LANGUAGES } from './ai/reader.js';
+import { extractPalmLines, narrate, narrateReading, ask, distressCheck, demoMode, LANGUAGES } from './ai/reader.js';
+import { basisFor } from './ai/basis.js';
 import { CITIES } from './data/cities.js';
 import { dailyHoroscope, horoscopeText } from './engine/horoscope.js';
 import { PLANS, planOf, planKey, monthKey, publicPlans } from './plans.js';
@@ -24,6 +25,7 @@ import { devLoginEnabled, isTest, clientIp } from './env.js';
 import { seoRoutes, ARTICLES, clearPageCache } from './seo/routes.js';
 import { t as tr, isLang, LANG_CODES, localePath, languageNames, packFor, readyLangs, coverage, invalidate } from './i18n/index.js';
 import { renderShell } from './i18n/shell.js';
+import { pushRoutes, pushTick } from './push.js';
 import { runTranslations, status as translateStatus, exportLang, importLang } from './i18n/jobs.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -90,6 +92,18 @@ function limit(maxPerHour) {
   };
 }
 
+// Try-before-you-sign-up allowance for visitors without an account (per IP, per day).
+// Kept in memory: it resets on redeploy, which only ever errs on the generous side.
+const guestUse = new Map();
+const GUEST_PER_DAY = { palm: 2, reading: 2 };
+function guestQuota(req, kind) {
+  const key = `${clientIp(req)}:${kind}:${new Date().toISOString().slice(0, 10)}`;
+  const n = guestUse.get(key) || 0;
+  if (n >= GUEST_PER_DAY[kind]) throw httpError(401, kind === 'palm' ? 'You have used today\'s free palm scans. Create a free account for one more each month.' : 'You have used today\'s free readings. Create a free account to save your chart and get one each month.', 'signin');
+  if (guestUse.size > 50000) guestUse.clear();
+  return () => guestUse.set(key, n + 1);
+}
+
 // ---- plans, quotas and profile access ------------------------------------
 function quotaLimit(user, kind) {
   const plan = planOf(user);
@@ -122,6 +136,8 @@ function natalOf(birth) {
   return { nakshatraIndex: v.birthNakshatraIndex, moonSign: v.moonSignIndex, nakshatra: v.birthNakshatra, rashi: v.moonSign, lagna: v.lagna.signName };
 }
 
+pushRoutes(app, limit);
+
 // ---- session + catalogue --------------------------------------------------
 app.get('/api/meta', wrap(async (_req, res) => res.json({
   demoMode, languages: LANGUAGES, languageNames: languageNames(), readyLangs: readyLangs(), activities: ACTIVITIES, cities: CITIES,
@@ -137,7 +153,7 @@ app.get('/api/me', (req, res) => {
   const used = store.usageFor(u.id, monthKey());
   res.json({
     user: { id: u.id, name: u.name, email: u.email, phone: u.phone, hasPassword: !!u.password_hash, hasGoogle: !!u.google_sub },
-    plan: { key: planKey(u), name: plan.name, profiles: plan.profiles, status: u.plan_status, renewsAt: u.plan_renews_at, personal: plan.personal },
+    plan: { key: planKey(u), name: plan.name, profiles: plan.profiles, status: u.plan_status, renewsAt: u.plan_renews_at, personal: plan.personal, interval: u.plan_interval || 'month' },
     allowance: Object.fromEntries(Object.keys(plan.limits).map((k) => [k, { used: used[k] || 0, max: quotaLimit(u, k) }])),
     profiles: store.listProfiles(u.id).map((p, i) => ({ id: p.id, name: p.name, relation: p.relation, birth: p.birth, natal: p.natal, hasPalm: !!p.palm, hasFace: !!p.face, hasReading: !!p.reading, locked: i >= plan.profiles })),
   });
@@ -159,9 +175,16 @@ app.get('/api/places', (req, res) => {
 
 // Prices for the visitor's country (Stripe). Razorpay charges in rupees only.
 app.get('/api/pricing', (req, res) => {
-  const country = billingConfigured() === 'razorpay' ? 'IN' : visitorCountry(req, req.query.tz);
+  const provider = billingConfigured();
+  const country = provider === 'razorpay' ? 'IN' : visitorCountry(req, req.query.tz);
+  const keys = ['solo', 'couple', 'family'];
   res.set('Cache-Control', 'private, max-age=3600');
-  res.json({ country, plans: Object.fromEntries(['solo', 'couple', 'family'].map((k) => [k, priceFor(k, country)])) });
+  res.json({
+    country,
+    plans: Object.fromEntries(keys.map((k) => [k, priceFor(k, country)])),
+    // Yearly plans need Stripe (Razorpay plans are set up monthly in its dashboard).
+    yearly: provider === 'razorpay' ? null : Object.fromEntries(keys.map((k) => [k, priceFor(k, country, 'year')])),
+  });
 });
 
 // Translations for the browser: interface, explanations and engine names (keyed by English).
@@ -260,19 +283,20 @@ const inflight = new Map();
 export async function horoscopeFor(sign, lang = 'en', date = today('Asia/Kolkata')) {
   const h = dailyHoroscope(date, sign);
   const cached = store.getHoroscope(date, sign, lang);
-  if (cached) return { ...h, text: cached };
+  if (cached) return { ...h, text: cached, ai: true };
   const key = `${date}:${sign}:${lang}`;
   if (!inflight.has(key)) {
     inflight.set(key, (async () => {
       try {
         const facts = { sign: `${h.sign.sa} (${h.sign.en})`, moonToday: h.moonTransit, scores: h.scores, lucky: h.lucky, highlights: h.highlights, sadeSati: h.sadeSati, retrogrades: h.retrogrades };
-        const text = demoMode ? horoscopeText(h) : await narrate({ kind: 'horoscope', facts, language: lang });
-        if (!demoMode) store.putHoroscope(date, sign, lang, text);
-        return text;
-      } catch { return horoscopeText(h); } finally { setTimeout(() => inflight.delete(key), 1000); }
+        if (demoMode) return { text: horoscopeText(h), ai: false };
+        const text = await narrate({ kind: 'horoscope', facts, language: lang });
+        store.putHoroscope(date, sign, lang, text);
+        return { text, ai: true };
+      } catch { return { text: horoscopeText(h), ai: false }; } finally { setTimeout(() => inflight.delete(key), 1000); }
     })());
   }
-  return { ...h, text: await inflight.get(key) };
+  return { ...h, ...(await inflight.get(key)) };
 }
 app.get('/api/horoscope', wrap(async (req, res) => {
   const sign = Number(req.query.sign);
@@ -311,20 +335,22 @@ app.post('/api/palm', limit(20), upload.single('photo'), wrap(async (req, res) =
   const geometry = landmarks ? interpretGeometry(palmGeometry(landmarks)) : null;
   let lines = null;
   if (req.file) {
-    if (!req.user) throw httpError(401, 'Please sign in to read your palm lines', 'signin');
     if (!/^image\/(jpeg|png|webp)$/.test(req.file.mimetype)) throw httpError(400, 'Photo must be JPEG, PNG or WebP');
-    const record = checkQuota(req.user, 'palm');
-    const raw = await extractPalmLines(req.file.buffer.toString('base64'), req.file.mimetype, { paid: planOf(req.user).personal });
+    // See before you sign up: visitors get the full line reading too (2 a day), just not saved.
+    const record = req.user ? checkQuota(req.user, 'palm') : guestQuota(req, 'palm');
+    const raw = await extractPalmLines(req.file.buffer.toString('base64'), req.file.mimetype, { paid: !!req.user && planOf(req.user).personal });
     if (!raw.cached) record();
     lines = { raw, ...interpretLines(raw) };
   }
   if (!geometry && !lines) throw httpError(400, 'Send landmarks, a photo, or both');
   const palm = { handType: geometry?.handType, facts: [...(geometry?.facts || []), ...(lines?.facts || [])], notVisible: lines?.notVisible || [], marriageLines: lines?.raw?.marriageLines };
+  let saved = false;
   if (req.user && req.body.profileId && lines && !lines.warning) {
     usableProfile(req.user, req.body.profileId);
     store.updateProfile(req.user.id, req.body.profileId, { palm });
+    saved = true;
   }
-  res.json({ geometry, lines, palm, photoStored: false });
+  res.json({ geometry, lines, palm, saved, photoStored: false });
 }));
 
 app.post('/api/face', limit(20), wrap(async (req, res) => {
@@ -357,12 +383,34 @@ function factsFor(prof, location) {
     const t = goodBadTimes(today(loc.tz), loc.lat, loc.lon, loc.tz, { birthNakshatra: v.birthNakshatraIndex, birthMoonSign: v.moonSignIndex, activities: ['general'] });
     facts.today = { personal: t.personal, bestWindows: t.bestWindows.general, badTimes: t.badTimes.slice(0, 4) };
   }
+  // The numbered list the reading must cite (shown as "Based on" under each section).
+  Object.defineProperty(facts, 'basis', { value: basisFor(p, { palm: prof.palm, face: prof.face, today: facts.today }), enumerable: false });
   return facts;
 }
 
-app.post('/api/reading', requireUser, limit(15), wrap(async (req, res) => {
-  const prof = usableProfile(req.user, req.body.profileId);
+// Palm and face results a visitor sends for their own guest reading: plain strings only.
+function cleanScan(x) {
+  if (!x || !Array.isArray(x.facts)) return null;
+  const str = (v) => (typeof v === 'string' ? v.slice(0, 160) : '');
+  const facts = x.facts.slice(0, 30).map((f) => ({ group: str(f.group), source: str(f.source), fact: str(f.fact), meaning: str(f.meaning) })).filter((f) => f.source && f.fact);
+  return facts.length ? { handType: str(x.handType) || undefined, faceType: str(x.faceType) || undefined, facts } : null;
+}
+
+app.post('/api/reading', limit(15), wrap(async (req, res) => {
   const language = LANGUAGES[req.body.language] ? req.body.language : 'en';
+  // A visitor without an account: a short reading from the birth details they entered
+  // (plus their palm and face results from this device), not saved anywhere.
+  if (!req.user) {
+    if (!req.body.birth) throw httpError(401, 'Please sign in to continue', 'signin');
+    const birth = checkBirth(req.body.birth);
+    const guest = { name: String(req.body.name || '').slice(0, 40), birth, palm: cleanScan(req.body.palm), face: cleanScan(req.body.face) };
+    const record = guestQuota(req, 'reading');
+    const facts = factsFor(guest, req.body.location);
+    const out = await narrateReading({ kind: 'teaser', facts, basis: facts.basis, language, name: guest.name || undefined, paid: false });
+    record();
+    return res.json({ text: out.text, sections: out.sections, basis: facts.basis, kind: 'teaser', language, at: Date.now(), guest: true });
+  }
+  const prof = usableProfile(req.user, req.body.profileId);
   const facts = factsFor(prof, req.body.location);
   // Free plan gets a short teaser from the cheaper model; paid plans get the full reading.
   const paid = planOf(req.user).personal;
@@ -376,10 +424,12 @@ app.post('/api/reading', requireUser, limit(15), wrap(async (req, res) => {
     && Date.now() - saved.at < 30 * 86400000) {
     return res.json({ ...saved, facts, cached: true });
   }
-  const record = checkQuota(req.user, 'reading');
-  const text = await narrate({ kind, facts, language, name: prof.name, paid });
+  // Readings saved before "Based on" existed are rewritten once with their working, free.
+  const upgrade = saved && !saved.sections && saved.kind === kind && saved.language === language && !req.body.refresh;
+  const record = upgrade ? () => {} : checkQuota(req.user, 'reading');
+  const out = await narrateReading({ kind, facts, basis: facts.basis, language, name: prof.name, paid });
   record();
-  const reading = { text, kind, language, at: Date.now(), factsHash };
+  const reading = { text: out.text, sections: out.sections, basis: facts.basis, kind, language, at: Date.now(), factsHash };
   store.updateProfile(req.user.id, prof.id, { reading });
   res.json({ ...reading, facts });
 }));
@@ -526,6 +576,8 @@ if (!isTest) {
     const missing = ['ANTHROPIC_API_KEY', 'GOOGLE_CLIENT_ID', ...pay, 'ADMIN_TOKEN'].filter((k) => !process.env[k]);
     console.log(`Payments: ${billingConfigured() || 'off (no Stripe or Razorpay keys yet)'}`);
     if (missing.length) console.log(`Not set yet (features stay off until added): ${missing.join(', ')}`);
+    // Daily timing alerts: check every minute what is due.
+    setInterval(() => pushTick().catch((e) => console.error('push', e.message)), 60000).unref();
     // Translate whatever is missing, a minute after start (only new strings after the first run).
     if (!demoMode && process.env.TRANSLATE_AUTO !== '0') {
       setTimeout(() => runTranslations({ articles: ARTICLES }).then((s) => {

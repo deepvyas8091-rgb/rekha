@@ -1,7 +1,7 @@
 // Rekha web client. Plain ES modules, no build step.
 import {
   TIMES, PANCHANG, nakshatraNature, SIGN_TRAIT, PLANET, HOUSE, DASHA, KUNDLI_TERMS, LIFE_PATH,
-  CHINESE_ANIMAL, ELEMENT, PALM_GUIDE, FACE_GUIDE, PALM_SVG, FACE_SVG,
+  CHINESE_ANIMAL, ELEMENT, PALM_GUIDE, FACE_GUIDE, PALM_SVG, FACE_SVG, SIGN_NOTE, SAMPLE_READING, ALERTS_HELP,
 } from './guide.js';
 import { t, d, N, month, lang, loadPack, pathFor, fmtDate, locale } from './i18n.js';
 import { COUNTRIES } from './countries.js';
@@ -62,6 +62,7 @@ async function boot() {
   bindUi();
   bindAuth();
   renderGuides();
+  applyLayout();
   await refreshMe();
   loadToday();
   finishCheckout();
@@ -89,6 +90,32 @@ function renderGuides() {
     <details class="explain"><summary>${esc(t('Tips for a good photo'))}</summary><div><ul class="tips">${g.tips.map((x) => `<li>${esc(t(x))}</li>`).join('')}</ul></div></details>`;
   $('#palmGuide').innerHTML = guide(PALM_GUIDE, PALM_SVG());
   $('#faceGuide').innerHTML = guide(FACE_GUIDE, FACE_SVG());
+  $('#signNote').innerHTML = `<summary>${esc(t(SIGN_NOTE.title))}</summary><div><p>${esc(t(SIGN_NOTE.body))}</p><a href="${esc(pathFor(lang, '/insights/lagna-vs-rashi-vs-sun-sign'))}">${esc(t('Lagna, rashi and sun sign explained'))}</a></div>`;
+  // Sample full reading on the plans screen, so people see what they pay for.
+  const sample = SAMPLE_READING.sections.map(([heading, text, basis]) => ({
+    heading: t(heading), text: t(text), basis: basis.map(([name, value, house]) => ({ name, value, house })),
+  }));
+  $('#sampleBody').innerHTML = `<p class="hint">${esc(t(SAMPLE_READING.intro))}</p>${sample.map((x) => sectionHtml(x.heading, x.text, x.basis)).join('')}`;
+}
+
+// ---------- readings that show their working ----------
+// Each section lists the calculated facts it was written from ("Based on").
+const BASIS_NAMES = [N('Day rating'), N('Best window today')]; // names the server adds, registered for translation
+void BASIS_NAMES;
+const BASIS_GROUPS = { chart: N('Birth chart'), palm: N('Palm'), face: N('Face'), today: N('Today') };
+function basisLabel(b) {
+  const val = Array.isArray(b.value) ? b.value.map(d).join(' / ') : d(b.value);
+  return `${d(b.name)}: ${val}${b.house ? ` · ${t('house {n}', { n: b.house })}` : ''}${b.retro ? ' (R)' : ''}`;
+}
+const sectionHtml = (heading, text, basis) => `<section class="rsec">${heading ? `<h3>${esc(heading)}</h3>` : ''}<div class="prose">${esc(text)}</div>
+  ${basis.length ? `<p class="basis"><span class="basis-k">${esc(t('Based on'))}</span>${basis.map((b) => `<span class="chip">${esc(basisLabel(b))}</span>`).join('')}</p>` : ''}</section>`;
+function readingHtml(r) {
+  const label = `<p class="ai-label">${esc(t('Written by AI from these calculated facts. Not a human astrologer, and not a certainty.'))} <a href="${esc(pathFor(lang, '/insights/how-rekha-works'))}">${esc(t('How Rekha works'))}</a></p>`;
+  if (!r.sections?.length) return `${label}<div class="prose">${esc(r.text)}</div>`;
+  const byId = new Map((r.basis || []).map((b) => [b.id, b]));
+  const groups = Object.entries(BASIS_GROUPS).map(([g, name]) => [name, (r.basis || []).filter((b) => b.group === g)]).filter(([, l]) => l.length);
+  return label + r.sections.map((x) => sectionHtml(x.heading, x.text, (x.basis || []).map((id) => byId.get(id)).filter(Boolean))).join('')
+    + (groups.length ? `<details class="explain"><summary>${esc(t('Everything this reading was given'))}</summary><div>${groups.map(([name, list]) => `<p><strong>${esc(t(name))}</strong><br>${list.map((b) => esc(basisLabel(b))).join(' · ')}</p>`).join('')}</div></details>` : '');
 }
 
 async function refreshMe() {
@@ -133,6 +160,14 @@ function bindUi() {
   $('#birthForm').addEventListener('submit', onBirth);
   $('#addMemberBtn').addEventListener('click', () => { $('#birthForm').hidden = false; $('#addMemberBtn').hidden = true; $('#birthForm').scrollIntoView({ behavior: 'smooth' }); });
   $('#palmFile').addEventListener('change', onPalm);
+  $('#palmCamBtn').addEventListener('click', openCamera);
+  $('#camDlg').addEventListener('close', stopCamera);
+  $('#camManual').addEventListener('click', () => { cam.manual = true; camStatus(t('Hold still…')); startCountdown(); });
+  $('#camFile').addEventListener('change', (e) => { $('#camDlg').close(); onPalm(e); });
+  $('#customiseBtn').addEventListener('click', openCustomise);
+  $('#todayReset').addEventListener('click', () => { local.set('todayLayout', null); applyLayout(); renderCustomise(); });
+  $$('#plansInterval [data-iv]').forEach((b) => b.addEventListener('click', () => { state.interval = b.dataset.iv; openPlans(state.plansWhy, $('#plansList input:checked')?.value); }));
+  bindAlerts();
   $('#faceConsent').addEventListener('change', (e) => { $('#faceFile').disabled = !e.target.checked; $('#faceUpload').classList.toggle('disabled', !e.target.checked); });
   $('#faceFile').addEventListener('change', onFace);
   $('#readBtn').addEventListener('click', () => onReading(false));
@@ -166,6 +201,7 @@ function switchTab(name, push = true) {
 
 function setPlace(p) {
   state.place = p; local.set('place', p); $('#placeBtn').textContent = p.name;
+  syncAlerts();
   loadToday(); $('#panchang').innerHTML = ''; $('#calendar').innerHTML = '';
   if ($('#tab-panchang').classList.contains('active')) { loadPanchang(); loadCalendar(); }
 }
@@ -268,7 +304,7 @@ async function afterSignin(plan = null) {
   loadToday();
   // Came from a plan: continue to payment without asking again.
   if (plan) {
-    if (state.me.plan?.key === plan) { toast(t('You are already on this plan.')); return; }
+    if (state.me.plan?.key === plan && (state.me.plan.interval || 'month') === (state.interval || 'month')) { toast(t('You are already on this plan.')); return; }
     toast(t('Account ready. Taking you to payment…'));
     subscribe(plan, { skipConfirm: true });
   }
@@ -281,34 +317,52 @@ function loadPricing() {
   pricingP ||= api(`/api/pricing?${qs({ tz: Intl.DateTimeFormat().resolvedOptions().timeZone })}`).then((p) => { state.pricing = p; return p; }).catch(() => null);
   return pricingP;
 }
-// Step 1 of 3: pick a plan. One list of features (they are the same for every plan),
-// compact plan cards, and one button that goes to sign-up or straight to payment.
+// Step 1 of 3: pick a plan. Monthly or yearly, one list of features (the same for every plan),
+// compact plan cards, the promise (no wallet, no upsell), a sample full reading, and one
+// button that goes to sign-up or straight to payment.
+const priceOf = (key) => {
+  const list = state.interval === 'year' ? state.pricing?.yearly : state.pricing?.plans;
+  return list?.[key] || (state.interval === 'year' ? null : state.meta.plans.find((x) => x.key === key)?.price);
+};
 async function openPlans(why, preselect) {
   await loadPricing();
   const cur = state.me.plan?.key || 'free';
+  const curIv = state.me.plan?.interval || 'month';
   const signed = !!state.me.user;
+  const yearly = !!state.pricing?.yearly && state.meta.billing !== 'razorpay';
+  if (!state.interval || !yearly) state.interval = yearly && cur !== 'free' ? curIv : state.interval && yearly ? state.interval : 'month';
+  state.plansWhy = why;
+  $('#plansInterval').hidden = !yearly;
+  $$('#plansInterval [data-iv]').forEach((b) => b.classList.toggle('on', b.dataset.iv === state.interval));
   $('#plansNote').textContent = state.pricing?.country === 'IN' || !state.pricing
-    ? t('Prices include GST. Cancel anytime; you keep access until the month you paid for ends.')
+    ? t('Prices include GST. Cancel anytime; you keep access until the period you paid for ends.')
     : t('Cancel anytime; you keep access until the period you paid for ends.');
   $('#plansCountry').textContent = state.pricing ? t('Prices for {country}', { country: regionName(state.pricing.country) }) : '';
   $('#plansWhy').textContent = why || t('Free tools stay free. Premium adds your personal times, daily guidance and full readings.');
   $('#plansSteps').innerHTML = `<li class="on">${esc(t('Plan'))}</li><li${signed ? ' class="done"' : ''}>${esc(t('Account'))}</li><li>${esc(t('Payment'))}</li>`;
   const paid = state.meta.plans.filter((p) => p.key !== 'free');
-  const pick = preselect || (cur !== 'free' ? paid.find((p) => p.key !== cur)?.key : 'couple');
-  $('#plansList').innerHTML = paid.map((p) => `
-    <label class="plan-opt${cur === p.key ? ' current' : ''}">
-      <input type="radio" name="plan" value="${p.key}"${p.key === pick ? ' checked' : ''}${cur === p.key ? ' disabled' : ''}>
-      <span><strong>${esc(t(p.name))}</strong><small>${esc(cur === p.key ? t('Your plan') : t(p.profiles === 1 ? '{n} profile' : '{n} profiles', { n: p.profiles }))}</small></span>
-      <span class="amt">${priceHtml({ ...p, price: state.pricing?.plans?.[p.key] || p.price })}</span>
+  const isCurrent = (k) => cur === k && curIv === state.interval;
+  const pick = preselect && !isCurrent(preselect) ? preselect : (paid.find((p) => !isCurrent(p.key) && p.key === (cur !== 'free' ? cur : 'couple')) || paid.find((p) => !isCurrent(p.key)))?.key;
+  $('#plansList').innerHTML = paid.map((p) => {
+    const pr = priceOf(p.key);
+    const perMonth = state.interval === 'year' && pr ? `<small class="per">${esc(t('{amount} a month, billed yearly', { amount: money({ ...pr, amount: pr.amount / 12 }) }))}</small>` : '';
+    return `
+    <label class="plan-opt${isCurrent(p.key) ? ' current' : ''}">
+      <input type="radio" name="plan" value="${p.key}"${p.key === pick ? ' checked' : ''}${isCurrent(p.key) ? ' disabled' : ''}>
+      <span><strong>${esc(t(p.name))}</strong><small>${esc(isCurrent(p.key) ? t('Your plan') : t(p.profiles === 1 ? '{n} profile' : '{n} profiles', { n: p.profiles }))}</small></span>
+      <span class="amt">${priceHtml({ ...p, price: pr })}${perMonth}</span>
       ${p.key === 'couple' ? `<span class="badge">${esc(t('Most popular'))}</span>` : ''}
-    </label>`).join('');
+    </label>`;
+  }).join('');
   $('#planFeatures').innerHTML = (paid[0]?.features || []).slice(1).map((f) => `<li>${esc(d(f))}</li>`).join('');
   const go = $('#planGo');
   const label = () => {
     const k = $('#plansList input:checked')?.value;
     go.disabled = !k;
     go.textContent = !k ? t('Your plan') : !signed ? t('Continue with {plan}', { plan: t(PLAN_NAME[k]) })
-      : cur === 'free' ? t('Pay for {plan}', { plan: t(PLAN_NAME[k]) }) : t('Switch to {plan}', { plan: t(PLAN_NAME[k]) });
+      : cur === 'free' ? t('Pay for {plan}', { plan: t(PLAN_NAME[k]) })
+        : k === cur ? (state.interval === 'year' ? t('Switch to yearly') : t('Switch to monthly'))
+          : t('Switch to {plan}', { plan: t(PLAN_NAME[k]) });
   };
   $$('#plansList input').forEach((r) => r.addEventListener('change', label));
   label();
@@ -316,18 +370,18 @@ async function openPlans(why, preselect) {
   if (!$('#plansDlg').open) $('#plansDlg').showModal();
 }
 const priceText = (plan) => {
-  const pr = state.pricing?.plans?.[plan];
   const p = state.meta.plans.find((x) => x.key === plan);
-  return priceHtml({ ...p, price: pr || p?.price }).replace(/<[^>]+>/g, '');
+  return priceHtml({ ...p, price: priceOf(plan) }).replace(/<[^>]+>/g, '');
+};
+const money = (pr) => {
+  try { return new Intl.NumberFormat(locale(), { style: 'currency', currency: pr.currency, maximumFractionDigits: pr.amount % 1 ? 2 : 0 }).format(pr.amount); } catch { return `${pr.currency} ${Math.round(pr.amount * 100) / 100}`; }
 };
 // Price as the payment provider has it (Stripe can be any currency or interval), else the ₹ default.
 function priceHtml(p) {
   const pr = p.price;
   if (!pr) return `₹${p.priceInr}<small>${esc(t('/month'))}</small>`;
-  let amount;
-  try { amount = new Intl.NumberFormat(locale(), { style: 'currency', currency: pr.currency, maximumFractionDigits: pr.amount % 1 ? 2 : 0 }).format(pr.amount); } catch { amount = `${pr.currency} ${pr.amount}`; }
   const per = pr.interval === 'year' ? t('/year') : t('/month');
-  return `${esc(amount)}<small>${esc(per)}</small>`;
+  return `${esc(money(pr))}<small>${esc(per)}</small>`;
 }
 let rzpLoaded = null;
 function loadRazorpay() {
@@ -346,7 +400,7 @@ async function subscribe(plan, { skipConfirm = false } = {}) {
       ? t('Your plan changes now. The price difference for the rest of this period is charged or credited. Continue?')
       : t('Switching starts a new monthly plan today and ends your current one. Continue?');
     if (!skipConfirm && state.me.plan?.key !== 'free' && !confirm(switchMsg)) return;
-    const s = await post('/api/billing/subscribe', { plan, lang, tz: Intl.DateTimeFormat().resolvedOptions().timeZone });
+    const s = await post('/api/billing/subscribe', { plan, interval: state.interval || 'month', lang, tz: Intl.DateTimeFormat().resolvedOptions().timeZone });
     // Stripe: plan changes happen straight away; new subscriptions go to Stripe's payment page.
     if (s.changed) { $('#plansDlg').close(); await refreshMe(); loadToday(); toast(t('Welcome to {plan}!', { plan: t(PLAN_NAME[s.plan] || s.plan) })); return; }
     if (s.url) { location.href = s.url; return; }
@@ -452,7 +506,7 @@ async function loadToday() {
 const RASHIS = [['Mesha', 'Aries'], ['Vrishabha', 'Taurus'], ['Mithuna', 'Gemini'], ['Karka', 'Cancer'], ['Simha', 'Leo'], ['Kanya', 'Virgo'],
   ['Tula', 'Libra'], ['Vrishchika', 'Scorpio'], ['Dhanu', 'Sagittarius'], ['Makara', 'Capricorn'], ['Kumbha', 'Aquarius'], ['Meena', 'Pisces']];
 function horoSign() {
-  const fromProfile = current()?.natal?.moonSign;
+  const fromProfile = current()?.natal?.moonSign ?? state.guestNatal?.moonSign;
   const saved = local.get('horoSign');
   return Number.isInteger(fromProfile) ? fromProfile : Number.isInteger(saved) ? saved : 0;
 }
@@ -471,6 +525,7 @@ async function loadHoroscope() {
     const bar = (label, n) => `<div class="score-row"><span>${esc(t(label))}</span><span class="meter-bar" aria-label="${esc(t('{n} out of 5', { n }))}"><i style="width:${n * 20}%"></i></span><b>${n}/5</b></div>`;
     out.innerHTML = `
       <p class="sub muted">${esc(fmtDate(h.date + 'T12:00:00', { weekday: 'long', day: 'numeric', month: 'long' }))} · ${esc(t('Moon in {sign}, house {n} from your sign', { sign: d(h.moonTransit.sign), n: h.moonTransit.house }))}</p>
+      ${h.ai ? `<p class="ai-label">${esc(t("Written by AI from today's planet positions for this Moon sign. The scores are calculated, not written by AI."))}</p>` : ''}
       <div class="prose">${esc(h.text)}</div>
       <div class="scores">${bar(N('Love'), h.scores.love)}${bar(N('Career'), h.scores.career)}${bar(N('Money'), h.scores.money)}${bar(N('Energy'), h.scores.energy)}</div>
       <p class="hint">${esc(t('Lucky colour'))}: <strong>${esc(h.lucky.colour.map(d).join(` ${t('or')} `))}</strong> · ${esc(t('Lucky number'))}: <strong>${h.lucky.number}</strong></p>`;
@@ -509,7 +564,7 @@ async function loadDaily() {
   el.innerHTML = `<div class="card muted">${esc(t("Writing today's guidance…"))}</div>`;
   try {
     const g = await api(`/api/daily/${prof.id}?${qs({ ...loc(), language: $('#lang').value })}`);
-    el.innerHTML = `<div class="card daily"><h2>${esc(t('Today for {name}', { name: prof.name }))}</h2><div class="prose">${esc(g.text)}</div></div>`;
+    el.innerHTML = `<div class="card daily"><h2>${esc(t('Today for {name}', { name: prof.name }))}</h2><p class="ai-label">${esc(t("Written by AI from your birth star, Moon sign and today's calculated timings."))}</p><div class="prose">${esc(g.text)}</div></div>`;
   } catch (e) { el.innerHTML = e.code === 'limit' ? '' : `<div class="card q-bad">${esc(e.message)}</div>`; }
 }
 
@@ -659,8 +714,11 @@ async function onBirth(e) {
       const data = await post('/api/profile', { birth });
       renderChart(data, state.guestBirth.name);
       state.guestNatal = { nakshatra: data.vedic.birthNakshatra };
-      $('#chart').insertAdjacentHTML('afterbegin', `<div class="card upsell">${esc(t('Sign in to save this chart and unlock readings.'))} <button class="linkish" id="saveSignin">${esc(t('Sign in'))} ›</button></div>`);
-      $('#saveSignin').addEventListener('click', () => openSignin());
+      state.guestNatal.moonSign = data.vedic.moonSignIndex;
+      updateSources(); loadHoroscope();
+      $('#chart').insertAdjacentHTML('afterbegin', `<div class="card upsell">${esc(t('Your chart is kept on this device. Get a free short reading from it in the Reading tab, or create a free account to save it.'))} <button class="linkish" id="guestRead">${esc(t('Get my free reading ›'))}</button> <button class="linkish" id="saveSignin">${esc(t('Create a free account'))} ›</button></div>`);
+      $('#guestRead').addEventListener('click', () => { switchTab('reading'); guestReading(); });
+      $('#saveSignin').addEventListener('click', () => openSignin(null, 'signup'));
     }
   } catch (err) { if (err.status !== 402) showError($('#chart'), err); }
 }
@@ -689,6 +747,8 @@ function renderChart(p, name) {
         ${cell(N('Manglik'), d(v.manglik.status), '', v.manglik.status === 'Not Manglik' ? t('Mars is not in a Manglik house.') : t('Mars is in a Manglik house from at least one reference point. Exceptions often cancel it; confirm with an astrologer before marriage decisions.'), 'Manglik')}
       </div>
     </section>
+
+    ${signsHtml(p)}
 
     <section class="card">
       <h2>${esc(t('Planets and what they mean for you'))}</h2>
@@ -722,6 +782,29 @@ function renderChart(p, name) {
       </div>
     </section>`;
 }
+// Indian Moon sign, Indian (sidereal) Sun sign and Western (tropical) sun sign side by side,
+// with why they differ: the "wrong sign" complaint is nearly always this difference.
+const englishSign = (sa) => RASHIS.find(([x]) => x === sa)?.[1];
+function signsHtml(p) {
+  const v = p.vedic;
+  const sid = v.planets.find((x) => x.planet === 'Sun')?.signName;
+  const west = p.western?.sunSign || v.sunSignWestern;
+  const named = (sa) => (lang === 'en' && englishSign(sa) ? `${sa} (${englishSign(sa)})` : d(sa));
+  const same = englishSign(sid) === west;
+  return `<section class="card signs">
+    <h2>${esc(t('Your three signs'))}</h2>
+    <div class="grid three">
+      <div class="cell"><b>${esc(t('Moon sign (Rashi)'))}</b><span class="val">${esc(named(v.moonSign))}</span><span class="sub">${esc(t('Used for Indian daily horoscopes'))}</span></div>
+      <div class="cell"><b>${esc(t('Indian Sun sign'))}</b><span class="val">${esc(named(sid))}</span><span class="sub">${esc(t('Sidereal zodiac'))}</span></div>
+      <div class="cell"><b>${esc(t('Western sun sign'))}</b><span class="val">${esc(d(west))}</span><span class="sub">${esc(t('Tropical zodiac, used by magazines'))}</span></div>
+    </div>
+    <p class="means">${esc(same ? t('Your Indian and Western Sun signs match. This happens for people born in about the last week of a Western sign.')
+      : t('Your Western sun sign is {west}, but in Indian astrology your Sun is in {sid}. Both are correct: the two zodiacs start about 24 degrees apart, so most people move back one sign.', { west: d(west), sid: named(sid) }))}
+      ${esc(t('Your Indian daily horoscope uses your Moon sign, {moon}.', { moon: named(v.moonSign) }))}</p>
+    <a href="${esc(pathFor(lang, '/insights/lagna-vs-rashi-vs-sun-sign'))}">${esc(t('Lagna, rashi and sun sign explained'))}</a>
+  </section>`;
+}
+
 // Nakshatra rulers (Vimshottari), for the "ruled by" line.
 const DASHA_LORD = {
   Ashwini: 'Ketu', Bharani: 'Venus', Krittika: 'Sun', Rohini: 'Moon', Mrigashira: 'Mars', Ardra: 'Rahu', Punarvasu: 'Jupiter', Pushya: 'Saturn', Ashlesha: 'Mercury',
@@ -736,11 +819,18 @@ function vision() {
   visionP ||= import(`${MP}/vision_bundle.mjs`).then(async (m) => ({ m, files: await m.FilesetResolver.forVisionTasks(`${MP}/wasm`) }));
   return visionP;
 }
-async function landmarker(kind) {
-  const { m, files } = await vision();
-  const base = { delegate: 'GPU' };
-  if (kind === 'hand') return m.HandLandmarker.createFromOptions(files, { runningMode: 'IMAGE', numHands: 1, baseOptions: { ...base, modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task' } });
-  return m.FaceLandmarker.createFromOptions(files, { runningMode: 'IMAGE', numFaces: 1, baseOptions: { ...base, modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task' } });
+const landmarkers = new Map();
+function landmarker(kind, runningMode = 'IMAGE') {
+  const key = `${kind}:${runningMode}`;
+  if (!landmarkers.has(key)) {
+    landmarkers.set(key, (async () => {
+      const { m, files } = await vision();
+      const base = { delegate: 'GPU' };
+      if (kind === 'hand') return m.HandLandmarker.createFromOptions(files, { runningMode, numHands: 1, baseOptions: { ...base, modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task' } });
+      return m.FaceLandmarker.createFromOptions(files, { runningMode, numFaces: 1, baseOptions: { ...base, modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task' } });
+    })().catch((e) => { landmarkers.delete(key); throw e; }));
+  }
+  return landmarkers.get(key);
 }
 async function loadImage(file, canvas, maxSide = 1280) {
   const img = await createImageBitmap(file);
@@ -770,25 +860,158 @@ function factsHtml(facts, notVisible = []) {
 
 async function onPalm(e) {
   const file = e.target.files[0]; if (!file) return;
-  const out = $('#palmOut');
-  if (!state.me.user) { openSignin(t('Sign in to read your palm lines. Your first scan is free.')); e.target.value = ''; return; }
-  if (!current()) { out.innerHTML = `<div class="card upsell">${esc(t('Add your birth details in Kundli first, so the scan is saved to your profile.'))}</div>`; return; }
-  out.innerHTML = `<p class="muted">${esc(t('Finding your hand…'))}</p>`;
+  e.target.value = '';
   const canvas = await loadImage(file, $('#palmCanvas'));
+  await readPalm(canvas);
+}
+// Brightness and sharpness of a photo, so a dark or blurred scan is caught before it is read.
+function photoQuality(canvas) {
+  const w = 160; const h = Math.max(1, Math.round((canvas.height / canvas.width) * w));
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  const g = c.getContext('2d', { willReadFrequently: true }); g.drawImage(canvas, 0, 0, w, h);
+  const px = g.getImageData(0, 0, w, h).data;
+  const lum = new Float32Array(w * h);
+  let sum = 0;
+  for (let i = 0; i < w * h; i++) { lum[i] = 0.299 * px[i * 4] + 0.587 * px[i * 4 + 1] + 0.114 * px[i * 4 + 2]; sum += lum[i]; }
+  const mean = sum / (w * h);
+  // Variance of the Laplacian: low means few sharp edges (blur).
+  let n = 0, m = 0, m2 = 0;
+  for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) {
+    const i = y * w + x;
+    const v = 4 * lum[i] - lum[i - 1] - lum[i + 1] - lum[i - w] - lum[i + w];
+    n++; const dlt = v - m; m += dlt / n; m2 += dlt * (v - m);
+  }
+  const sharp = n ? m2 / n : 0;
+  return { mean, sharp, problem: mean < 55 ? 'dark' : mean > 235 ? 'bright' : sharp < 40 ? 'blurry' : null };
+}
+const QUALITY_MSG = {
+  dark: N('This photo looks too dark to read the lines.'),
+  bright: N('This photo looks overexposed, so fine lines may not show.'),
+  blurry: N('This photo looks blurred, so fine lines may not show.'),
+};
+function askRetake(problem) {
+  const out = $('#palmOut');
+  return new Promise((resolve) => {
+    out.innerHTML = `<div class="card q-neutral"><p>${esc(t(QUALITY_MSG[problem]))}</p><div class="two"><button class="primary" id="qRetake">${esc(t('Retake'))}</button><button class="ghost" id="qUse">${esc(t('Use this photo'))}</button></div></div>`;
+    $('#qRetake').addEventListener('click', () => { out.innerHTML = ''; resolve(false); openCamera(); });
+    $('#qUse').addEventListener('click', () => resolve(true));
+  });
+}
+async function readPalm(canvas) {
+  const out = $('#palmOut');
+  const q = photoQuality(canvas);
+  if (q.problem && !(await askRetake(q.problem))) return;
+  out.innerHTML = `<p class="muted">${esc(t('Finding your hand…'))}</p>`;
   let lms = null;
   try { lms = (await landmarker('hand')).detect(canvas).landmarks?.[0] || null; if (lms) dots(canvas, lms, '#f08a3e'); } catch { /* on-device model unavailable */ }
   const blob = await new Promise((r) => canvas.toBlob(r, 'image/jpeg', 0.85));
-  const fd = new FormData(); fd.append('photo', blob, 'palm.jpg'); fd.append('profileId', current().id);
+  const fd = new FormData(); fd.append('photo', blob, 'palm.jpg');
+  const prof = state.me.user ? current() : null;
+  if (prof) fd.append('profileId', prof.id);
   if (lms) fd.append('landmarks', JSON.stringify(lms.map(({ x, y }) => ({ x, y }))));
   out.innerHTML = `<p class="muted">${esc(t('Reading your lines…'))}</p>`;
   try {
     const r = await post('/api/palm', fd);
     if (r.lines?.warning) { out.innerHTML = `<p class="q-bad">${esc(d(r.lines.warning))} ${esc(t('Retake with your open palm filling the frame.'))}</p>`; return; }
-    state.palm = r.palm;
+    state.palm = r.palm; updateSources();
+    const note = r.saved ? t('Saved to {name}. Photo deleted after reading. Your combined reading in the Reading tab now includes your palm.', { name: prof.name })
+      : state.me.user ? t('Photo deleted after reading. Add your birth details in Kundli to save scans to a profile.')
+        : t('Photo deleted after reading. Nothing was saved. Your free reading in the Reading tab can include this palm.');
     out.innerHTML = `${r.lines?.photoQuality === 'poor' ? `<p class="q-neutral">${esc(t('Photo is dark or blurry, so some lines were skipped. Retake in daylight for a fuller reading.'))}</p>` : ''}
-      <h2>${esc(r.palm.handType ? t('Your palm: {type} hand', { type: d(r.palm.handType) }) : t('Your palm'))}</h2>${factsHtml(r.palm.facts, r.palm.notVisible)}<p class="hint">${esc(t('Saved to {name}. Photo deleted after reading. Your combined reading in the Reading tab now includes your palm.', { name: current().name }))}</p>`;
-    await refreshMe();
+      <h2>${esc(r.palm.handType ? t('Your palm: {type} hand', { type: d(r.palm.handType) }) : t('Your palm'))}</h2>${factsHtml(r.palm.facts, r.palm.notVisible)}<p class="hint">${esc(note)}</p>
+      ${state.me.user ? '' : `<p><button class="linkish" id="palmSave">${esc(t('Create a free account to keep it ›'))}</button></p>`}`;
+    $('#palmSave')?.addEventListener('click', () => openSignin(t('A free account keeps your palm and chart, so your readings can use them.'), 'signup'));
+    if (state.me.user) await refreshMe();
   } catch (err) { showError(out, err); }
+}
+
+// ---------- guided palm capture ----------
+// Live camera with a hand outline. The photo is taken by a 3-second countdown once the
+// open hand fills the outline and holds still, never "before I was ready".
+const cam = { stream: null, timer: null, count: null, okSince: 0, last: null, manual: false };
+const camStatus = (msg) => { $('#camStatus').textContent = msg; };
+function stopCamera() {
+  clearInterval(cam.timer); clearInterval(cam.count); cam.timer = null; cam.count = null; cam.okSince = 0; cam.last = null; cam.manual = false;
+  cam.stream?.getTracks().forEach((tr) => tr.stop()); cam.stream = null;
+  $('#camCount').hidden = true;
+}
+async function openCamera() {
+  if (!navigator.mediaDevices?.getUserMedia) { $('#palmFile').click(); return; }
+  const dlg = $('#camDlg');
+  if (!dlg.open) dlg.showModal();
+  camStatus(t('Starting the camera…'));
+  try {
+    cam.stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 1280 } }, audio: false });
+  } catch {
+    dlg.close(); toast(t('The camera is not available. Upload a photo instead.')); $('#palmFile').click(); return;
+  }
+  const video = $('#camVideo'); video.srcObject = cam.stream;
+  try { await video.play(); } catch { /* autoplay attribute covers it */ }
+  let model = null;
+  try { model = await landmarker('hand', 'VIDEO'); } catch { /* fall back to the manual countdown */ }
+  if (!dlg.open) return stopCamera();
+  if (!model) { camStatus(t('Hold your open palm inside the outline, then tap Take photo now.')); return; }
+  camStatus(t('Show your open palm inside the outline'));
+  const probe = document.createElement('canvas'); probe.width = 64; probe.height = 64;
+  const pg = probe.getContext('2d', { willReadFrequently: true });
+  cam.timer = setInterval(() => {
+    if (!video.videoWidth || cam.manual) return;
+    let lms = null;
+    try { lms = model.detectForVideo(video, performance.now()).landmarks?.[0]; } catch { return; }
+    pg.drawImage(video, 0, 0, 64, 64);
+    const px = pg.getImageData(0, 0, 64, 64).data; let sum = 0;
+    for (let i = 0; i < px.length; i += 4) sum += 0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2];
+    const problem = handProblem(lms, sum / (px.length / 4));
+    if (problem) {
+      // The hand moved or left the outline during the countdown: start again.
+      if (cam.count) { clearInterval(cam.count); cam.count = null; $('#camCount').hidden = true; }
+      cam.okSince = 0; camStatus(t(problem)); return;
+    }
+    if (cam.count) return;
+    cam.okSince ||= Date.now();
+    camStatus(t('Hold still…'));
+    if (Date.now() - cam.okSince > 600) { camStatus(t('Perfect. Taking the photo…')); startCountdown(); }
+  }, 180);
+}
+const HAND_MSG = {
+  none: N('Show your open palm inside the outline'), dark: N('Too dark: move to a brighter spot'),
+  far: N('Move your hand a little closer'), near: N('Move your hand a little further away'),
+  closed: N('Open your hand fully, fingers slightly apart'), moving: N('Hold still…'),
+};
+function handProblem(lms, brightness) {
+  if (brightness < 50) return HAND_MSG.dark;
+  if (!lms) return HAND_MSG.none;
+  const xs = lms.map((p) => p.x); const ys = lms.map((p) => p.y);
+  const size = Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys));
+  if (size < 0.45) return HAND_MSG.far;
+  if (Math.min(...xs) < 0.01 || Math.max(...xs) > 0.99 || Math.min(...ys) < 0.01 || Math.max(...ys) > 0.99) return HAND_MSG.near;
+  const dist = (a, b) => Math.hypot(lms[a].x - lms[b].x, lms[a].y - lms[b].y);
+  const open = [[8, 6], [12, 10], [16, 14], [20, 18]].filter(([tip, pip]) => dist(tip, 0) > dist(pip, 0)).length;
+  if (open < 4) return HAND_MSG.closed;
+  if (cam.last && Math.hypot(lms[9].x - cam.last.x, lms[9].y - cam.last.y) > 0.025) { cam.last = { ...lms[9] }; return HAND_MSG.moving; }
+  cam.last = { ...lms[9] };
+  return null;
+}
+function startCountdown() {
+  if (cam.count) return;
+  let n = 3; const el = $('#camCount'); el.hidden = false; el.textContent = n;
+  cam.count = setInterval(() => {
+    n -= 1;
+    if (n > 0) { el.textContent = n; return; }
+    clearInterval(cam.count); cam.count = null; el.hidden = true;
+    capturePalm();
+  }, 1000);
+}
+async function capturePalm() {
+  const video = $('#camVideo');
+  if (!video.videoWidth) return;
+  const canvas = $('#palmCanvas');
+  const s = Math.min(1, 1280 / Math.max(video.videoWidth, video.videoHeight));
+  canvas.width = Math.round(video.videoWidth * s); canvas.height = Math.round(video.videoHeight * s);
+  canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+  canvas.hidden = false;
+  $('#camDlg').close();
+  await readPalm(canvas);
 }
 
 async function onFace(e) {
@@ -809,26 +1032,44 @@ async function onFace(e) {
 // ---------- reading + chat ----------
 function updateSources() {
   const p = current();
-  const s = [[N('Birth chart'), !!p], [N('Palm'), !!(p?.hasPalm || state.palm)], [N('Face'), !!(p?.hasFace || state.face)]];
+  const s = [[N('Birth chart'), !!p || (!state.me.user && !!state.guestBirth)], [N('Palm'), !!(p?.hasPalm || state.palm)], [N('Face'), !!(p?.hasFace || state.face)]];
   $('#sources').innerHTML = s.map(([n, ok]) => `<span class="chip${ok ? ' ok' : ''}">${ok ? '✓' : '+'} ${esc(t(n))}</span>`).join('');
 }
 async function loadSavedReading() {
   const p = current(); if (!p?.hasReading) return;
   try {
     const r = await api(`/api/reading/${p.id}`);
-    if (r?.text) { $('#reading').hidden = false; $('#reading').textContent = r.text; $('#chatCard').hidden = false; $('#shareBtn').hidden = false; chatAllowance(); }
+    if (r?.text) { $('#reading').hidden = false; $('#reading').innerHTML = readingHtml(r); $('#chatCard').hidden = false; $('#shareBtn').hidden = false; chatAllowance(); }
   } catch { /* ignore */ }
 }
 function chatAllowance() {
   const a = state.me.allowance?.chat; $('#chatLeft').textContent = a ? t('{n} questions left this month', { n: Math.max(0, a.max - a.used) }) : '';
 }
+// No account: a short reading from the birth details on this device, plus any palm and face scan.
+async function guestReading() {
+  const el = $('#reading');
+  if (!state.guestBirth) {
+    switchTab('chart');
+    toast(t('Add your birth details first. No account needed.'));
+    return;
+  }
+  el.hidden = false; el.textContent = t('Writing your reading…');
+  try {
+    const r = await post('/api/reading', { birth: state.guestBirth, name: state.guestBirth.name, palm: state.palm, face: state.face, language: $('#lang').value, location: loc() });
+    el.innerHTML = readingHtml(r);
+    el.insertAdjacentHTML('beforeend', `<div class="card upsell"><p>${esc(t('This short reading is free and was not saved.'))}</p>
+      <div class="two"><button class="primary" id="guestSave">${esc(t('Create a free account to keep it'))}</button><button class="ghost" id="fullUp">${esc(t('See what the full reading adds'))}</button></div></div>`);
+    $('#guestSave').addEventListener('click', () => openSignin(t('A free account keeps your palm and chart, so your readings can use them.'), 'signup'));
+    $('#fullUp').addEventListener('click', () => openPlans(t('The full palm + face + chart reading is part of Premium.')));
+  } catch (e) { el.textContent = e.message; }
+}
 async function onReading(refresh = false) {
-  if (!state.me.user) { openSignin(t('Sign in for your combined reading. Your first one is free.')); return; }
+  if (!state.me.user) { guestReading(); return; }
   if (!current()) { switchTab('chart'); return; }
   const el = $('#reading'); el.hidden = false; el.textContent = t('Writing your reading…');
   try {
     const r = await post('/api/reading', { profileId: current().id, language: $('#lang').value, location: loc(), refresh: refresh === true });
-    el.textContent = r.text; state.facts = r.facts; state.history = [];
+    el.innerHTML = readingHtml(r); state.facts = r.facts; state.history = [];
     if (r.cached) {
       // Saved reading: shown free. Rewriting it uses one reading from the monthly allowance.
       const when = fmtDate(r.at, { day: 'numeric', month: 'short' });
@@ -903,10 +1144,89 @@ async function onMatch(e) {
       <table><thead><tr><th>${esc(t('Koota'))}</th><th>${esc(t('Score'))}</th><th>${esc(t('Area'))}</th></tr></thead><tbody>${g.kootas.map((k) => `<tr><td>${esc(d(k.koota))}</td><td>${esc(k.score)} / ${esc(k.max)}</td><td>${esc(d(k.area))}</td></tr>`).join('')}</tbody></table>
       <p>${esc(t('Manglik'))}: ${esc(d(r.manglik.boy))} / ${esc(d(r.manglik.girl))}. ${esc(g.doshas.length ? t('Doshas: {list}.', { list: g.doshas.map(d).join(', ') }) : t('No major doshas.'))}</p>
       <p class="hint">${esc(d(g.note))}</p></div>
-      ${r.reading ? `<article class="card prose">${esc(r.reading)}</article>` : `<div class="card upsell">${esc(t('Want this explained in plain words in your language?'))} <button class="linkish" id="matchUp">${esc(t('Premium'))} ›</button></div>`}`;
+      ${r.reading ? `<article class="card"><p class="ai-label">${esc(t('Written by AI from the scores above.'))}</p><div class="prose">${esc(r.reading)}</div></article>` : `<div class="card upsell">${esc(t('Want this explained in plain words in your language?'))} <button class="linkish" id="matchUp">${esc(t('Premium'))} ›</button></div>`}`;
     $('#matchUp')?.addEventListener('click', () => openPlans(t('Detailed match explanations are part of Premium.')));
   } catch (err) { showError(out, err); }
 }
+
+// ---------- daily alerts (web push) ----------
+const pushSupported = () => 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+const b64ToBytes = (b64) => { const s = atob((b64 + '='.repeat((4 - (b64.length % 4)) % 4)).replace(/-/g, '+').replace(/_/g, '/')); return Uint8Array.from(s, (c) => c.charCodeAt(0)); };
+function alertsMsg(text) { $('#alertsMsg').hidden = !text; $('#alertsMsg').textContent = text || ''; }
+async function currentPush() {
+  if (!pushSupported()) return null;
+  try { return await (await navigator.serviceWorker.ready).pushManager.getSubscription(); } catch { return null; }
+}
+function alertsUi(on) {
+  $('#alertsOn').hidden = on; $('#alertsOff').hidden = !on;
+  $('#alertsState').textContent = on ? t('On') : '';
+  $('#alertsCard').classList.toggle('on', on);
+}
+const alertPrefs = () => ({ morning: $('#alertMorning').checked ? $('#alertTime').value || '07:00' : null, rahu: $('#alertRahu').checked });
+async function sendAlertPrefs(sub, confirmIt = false) {
+  const prefs = alertPrefs();
+  local.set('alerts', prefs);
+  await post('/api/push/subscribe', { subscription: sub.toJSON(), place: { ...loc(), name: d(state.place.name) }, lang, ...prefs, confirm: confirmIt });
+}
+async function syncAlerts() { const sub = await currentPush(); if (sub) sendAlertPrefs(sub).catch(() => {}); }
+function bindAlerts() {
+  const saved = local.get('alerts');
+  if (saved) { $('#alertMorning').checked = !!saved.morning; if (saved.morning) $('#alertTime').value = saved.morning; $('#alertRahu').checked = saved.rahu !== false; }
+  currentPush().then((sub) => alertsUi(!!sub));
+  $('#alertsOn').addEventListener('click', async () => {
+    if (!pushSupported()) { alertsMsg(t(isIos() && !isStandalone() ? ALERTS_HELP.ios : ALERTS_HELP.unsupported)); return; }
+    if (!$('#alertMorning').checked && !$('#alertRahu').checked) { alertsMsg(t('Tick at least one alert.')); return; }
+    const btn = $('#alertsOn'); btn.disabled = true;
+    try {
+      const perm = await Notification.requestPermission();
+      if (perm !== 'granted') { alertsMsg(t(ALERTS_HELP.blocked)); return; }
+      const reg = await navigator.serviceWorker.ready;
+      const { publicKey } = await api('/api/push/key');
+      const sub = (await reg.pushManager.getSubscription()) || (await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(publicKey) }));
+      await sendAlertPrefs(sub, true);
+      alertsUi(true); alertsMsg(t('Alerts are on for {city}. They follow the location you set at the top.', { city: d(state.place.name) }));
+    } catch (e) { alertsMsg(e.message || t('Could not turn on alerts. Please try again.')); } finally { btn.disabled = false; }
+  });
+  $('#alertsOff').addEventListener('click', async () => {
+    const sub = await currentPush();
+    if (sub) { await post('/api/push/unsubscribe', { endpoint: sub.endpoint }).catch(() => {}); await sub.unsubscribe().catch(() => {}); }
+    alertsUi(false); alertsMsg(t('Alerts are off.'));
+  });
+  for (const id of ['#alertMorning', '#alertTime', '#alertRahu']) $(id).addEventListener('change', syncAlerts);
+}
+
+// ---------- choose what Today shows ----------
+// Saved on this device only (a display preference, not account data).
+const SECTIONS = [['daily', N('Your daily guidance')], ['horo', N('Daily horoscope')], ['best', N('Best time for')], ['times', N('Avoid today and auspicious windows')],
+  ['alerts', N('Daily alerts')], ['chogh', N('Choghadiya')], ['hora', N('Hora (planetary hours)')]];
+function layout() {
+  const saved = local.get('todayLayout');
+  const keys = SECTIONS.map(([k]) => k);
+  const order = [...(saved?.order || []).filter((k) => keys.includes(k)), ...keys.filter((k) => !(saved?.order || []).includes(k))];
+  return { order, hidden: (saved?.hidden || []).filter((k) => keys.includes(k)) };
+}
+function applyLayout() {
+  const { order, hidden } = layout();
+  const body = $('#todayBody');
+  for (const k of order) { const el = body.querySelector(`:scope > [data-sec="${k}"]`); if (el) { body.append(el); el.classList.toggle('sec-off', hidden.includes(k)); } }
+}
+function renderCustomise() {
+  const { order, hidden } = layout();
+  const name = Object.fromEntries(SECTIONS);
+  $('#todayList').innerHTML = order.map((k, i) => `<li><label class="check"><input type="checkbox" data-k="${k}"${hidden.includes(k) ? '' : ' checked'}> ${esc(t(name[k]))}</label>
+    <span class="moves"><button type="button" class="ghost small" data-up="${k}" ${i === 0 ? 'disabled' : ''} aria-label="${esc(t('Move up'))}">↑</button><button type="button" class="ghost small" data-down="${k}" ${i === order.length - 1 ? 'disabled' : ''} aria-label="${esc(t('Move down'))}">↓</button></span></li>`).join('');
+  const save = (o, h) => { local.set('todayLayout', { order: o, hidden: h }); applyLayout(); renderCustomise(); };
+  $$('#todayList [data-k]').forEach((c) => c.addEventListener('change', () => {
+    const { order: o, hidden: h } = layout();
+    save(o, c.checked ? h.filter((x) => x !== c.dataset.k) : [...h, c.dataset.k]);
+  }));
+  $$('#todayList [data-up], #todayList [data-down]').forEach((b) => b.addEventListener('click', () => {
+    const { order: o, hidden: h } = layout();
+    const k = b.dataset.up || b.dataset.down; const i = o.indexOf(k); const j = b.dataset.up ? i - 1 : i + 1;
+    [o[i], o[j]] = [o[j], o[i]]; save(o, h);
+  }));
+}
+function openCustomise() { renderCustomise(); $('#todayDlg').showModal(); }
 
 // ---------- install as an app (PWA) ----------
 let deferredPrompt = null;

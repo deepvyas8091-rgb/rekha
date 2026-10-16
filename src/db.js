@@ -96,7 +96,7 @@ for (const [table, col, type] of [
   ['ai_calls', 'cache_write', 'INTEGER DEFAULT 0'], ['ai_calls', 'cache_read', 'INTEGER DEFAULT 0'],
   ['users', 'phone', 'TEXT'], ['users', 'password_hash', 'TEXT'], ['users', 'session_v', 'INTEGER DEFAULT 0'],
   ['users', 'failed_logins', 'INTEGER DEFAULT 0'], ['users', 'locked_until', 'INTEGER'],
-  ['users', 'stripe_customer_id', 'TEXT'],
+  ['users', 'stripe_customer_id', 'TEXT'], ['users', 'plan_interval', 'TEXT'],
 ]) {
   const cols = db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name);
   if (!cols.includes(col)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${type}`);
@@ -173,6 +173,7 @@ export function setPlan(userId, fields) {
        plan_renews_at = COALESCE(?, plan_renews_at), subscription_id = COALESCE(?, subscription_id) WHERE id = ?`,
     plan ?? null, status ?? null, renewsAt ?? null, subscriptionId ?? null, userId);
   // Only touched when the caller passes the key (null clears it).
+  if (fields.interval) run('UPDATE users SET plan_interval = ? WHERE id = ?', fields.interval, userId);
   if ('prevSubscriptionId' in fields) run('UPDATE users SET prev_subscription_id = ? WHERE id = ?', fields.prevSubscriptionId ?? null, userId);
 }
 export function deleteUser(id) { run('DELETE FROM users WHERE id = ?', id); run('DELETE FROM usage WHERE user_id = ?', id); }

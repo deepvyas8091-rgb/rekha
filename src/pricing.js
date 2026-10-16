@@ -5,7 +5,9 @@
 import cityTimezones from 'city-timezones';
 
 export const PRICE_VERSION = 1;
-const INTERVAL = 'month';
+export const INTERVALS = ['month', 'year'];
+// Yearly = 10 months' price (two months free), rounded to a normal-looking amount.
+export const YEAR_MONTHS = 10;
 
 // [solo, couple, family] per currency, in normal units (₹49, not paise).
 export const TIERS = {
@@ -31,13 +33,26 @@ const CURRENCY_OF = {
 const ZERO_DECIMAL = new Set(['jpy', 'vnd', 'krw', 'clp']);
 export const minorUnits = (amount, cur) => Math.round(ZERO_DECIMAL.has(cur) ? amount : amount * 100);
 
+/** A yearly amount from a monthly one: 4.99 -> 49.99, 49 -> 490, 19000 -> 190000. */
+export function yearlyAmount(monthly, cur) {
+  const y = monthly * YEAR_MONTHS;
+  if (ZERO_DECIMAL.has(cur) || Number.isInteger(monthly)) return Math.round(y);
+  return +(Math.ceil(y - 1e-9) - 0.01).toFixed(2);
+}
+/** Amount in normal units for a plan, tier and currency (lowercase), per month or per year. */
+export function amountOf(plan, tier, cur, interval = 'month') {
+  const m = TIERS[tier][cur][PLAN_INDEX[plan]];
+  return interval === 'year' ? yearlyAmount(m, cur) : m;
+}
+
 export const tierOf = (country) => TIER_OF[country] || 'B';
 /** The price a visitor from this country sees: { country, tier, currency, amount, interval }. */
-export function priceFor(plan, country) {
+export function priceFor(plan, country, interval = 'month') {
   const tier = tierOf(country);
   const local = CURRENCY_OF[country];
   const currency = local && TIERS[tier][local] ? local : 'usd';
-  return { country, tier, currency: currency.toUpperCase(), amount: TIERS[tier][currency][PLAN_INDEX[plan]], interval: INTERVAL };
+  const iv = interval === 'year' ? 'year' : 'month';
+  return { country, tier, currency: currency.toUpperCase(), amount: amountOf(plan, tier, currency, iv), interval: iv };
 }
 
 // ---- where the visitor is ----------------------------------------------------------

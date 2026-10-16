@@ -53,27 +53,39 @@
       <header class="page-head">
         <h1 id="h-today" data-i18n>Today's good and bad times</h1>
         <p class="lede" data-i18n>Choghadiya, Rahu Kaal and the best windows for your city, worked out from today's sunrise.</p>
+        <button type="button" class="linkish customise" id="customiseBtn" data-i18n>Choose what Today shows</button>
       </header>
       <div class="card install" id="installCard" hidden>
         <div><strong data-i18n>Install Rekha on your phone</strong><p class="hint" data-i18n>Opens in one tap from your home screen, full screen, and works offline. No app store needed.</p></div>
         <div class="install-actions"><button class="primary" id="installBtn" data-i18n>Install</button><button class="linkish" id="installLater" data-i18n>Not now</button></div>
       </div>
       <div class="now card" id="nowCard"><div class="muted" data-i18n>Loading today…</div></div>
-      <div id="dailyCard"></div>
+      <div id="todayBody" class="today-body">
+      <div id="dailyCard" data-sec="daily"></div>
 
-      <section class="card horo" aria-labelledby="h-horo">
+      <section class="card alerts" id="alertsCard" data-sec="alerts" aria-labelledby="h-alerts">
+        <div class="row-head"><h2 id="h-alerts" data-i18n>Daily alerts</h2><span class="tag" id="alertsState"></span></div>
+        <p class="hint" data-i18n>Get today's timings on your phone without opening the app. Free, no account needed.</p>
+        <label class="check"><input type="checkbox" id="alertMorning" checked> <span data-i18n>Morning summary at</span> <input type="time" id="alertTime" value="07:00" aria-label="Time of the morning summary" data-i18n-aria></label>
+        <label class="check"><input type="checkbox" id="alertRahu" checked> <span data-i18n>10 minutes before Rahu Kaal</span></label>
+        <div class="two"><button type="button" class="primary" id="alertsOn" data-i18n>Turn on alerts</button><button type="button" class="ghost" id="alertsOff" hidden data-i18n>Turn off</button></div>
+        <p class="hint" id="alertsMsg" hidden></p>
+      </section>
+
+      <section class="card horo" data-sec="horo" aria-labelledby="h-horo">
         <div class="row-head"><h2 id="h-horo" data-i18n>Daily horoscope</h2><select id="horoSign" aria-label="Your Moon sign" data-i18n-aria></select></div>
         <div id="horoOut"><p class="muted" data-i18n>Loading your horoscope…</p></div>
         <p class="hint"><span data-i18n>Based on your Moon sign (rashi), the Indian way.</span> <button class="linkish" id="findRashi" data-i18n>Don't know yours? Find it free in Kundli ›</button> · <a href="/horoscope" data-i18n>All signs</a></p>
+        <details class="explain" id="signNote"></details>
       </section>
 
-      <section class="block">
+      <section class="block" data-sec="best">
         <div class="row-head"><h2 data-i18n>Best time for</h2><select id="activity" aria-label="Activity" data-i18n-aria></select></div>
         <div id="bestWindows" class="windows"></div>
         <details class="explain" data-explain="best"></details>
       </section>
 
-      <div class="cols">
+      <div class="cols" data-sec="times">
         <section class="block">
           <h2 data-i18n>Avoid today</h2>
           <div id="badTimes" class="list"></div>
@@ -86,19 +98,20 @@
         </section>
       </div>
 
-      <section class="block">
+      <section class="block" data-sec="chogh">
         <div class="row-head"><h2 data-i18n>Choghadiya</h2>
           <div class="seg" role="tablist"><button data-cg="day" class="on" data-i18n>Day</button><button data-cg="night" data-i18n>Night</button></div></div>
         <div id="choghadiya" class="timeline"></div>
         <details class="explain" data-explain="choghadiya"></details>
       </section>
 
-      <section class="block">
+      <section class="block" data-sec="hora">
         <details class="card fold"><summary><h2 data-i18n>Hora (planetary hours)</h2></summary>
           <p class="explain-text" id="horaExplain"></p>
           <div id="hora" class="list compact"></div>
         </details>
       </section>
+      </div>
     </section>
 
     <!-- PANCHANG -->
@@ -142,13 +155,14 @@
     <section id="tab-scan" class="tab" aria-labelledby="h-scan">
       <header class="page-head">
         <h1 id="h-scan" data-i18n>Palm and face reading</h1>
-        <p class="lede" data-i18n>See what each reading covers, then scan. Your results are saved to the selected profile and feed your combined reading.</p>
+        <p class="lede" data-i18n>Free, and no account needed: scan and see your full result. Sign in only if you want it saved to a profile for your combined reading.</p>
       </header>
       <div class="cols">
         <section class="card scan-card">
           <h2 data-i18n>Palm reading</h2>
           <div class="guide" id="palmGuide"></div>
-          <label class="upload primary"><span data-i18n>Scan my palm</span><input type="file" id="palmFile" accept="image/*" capture="environment" hidden></label>
+          <button type="button" class="primary block" id="palmCamBtn" data-i18n>Scan my palm</button>
+          <label class="upload linkish"><span data-i18n>Or upload a photo</span><input type="file" id="palmFile" accept="image/*" hidden></label>
           <canvas id="palmCanvas" class="preview" hidden></canvas>
           <div id="palmOut"></div>
         </section>
@@ -168,6 +182,7 @@
       <header class="page-head">
         <h1 id="h-reading" data-i18n>Your combined reading</h1>
         <p class="lede" data-i18n>Chart, palm and face read together. Where they agree, the reading says so. Written in your language.</p>
+        <p class="ai-label"><span data-i18n>Written by AI from your calculated chart, palm and face. No astrologer is involved, and every section shows what it is based on.</span> <a href="/insights/how-rekha-works" data-i18n>How Rekha works</a></p>
       </header>
       <div class="card">
         <div class="two"><select id="lang" aria-label="Language" data-i18n-aria></select><button id="readBtn" class="primary" data-i18n>Create reading</button></div>
@@ -253,15 +268,46 @@
     <div class="sheet-body">
       <ol class="stepper" id="plansSteps"><li class="on" data-i18n>Plan</li><li data-i18n>Account</li><li data-i18n>Payment</li></ol>
       <p class="hint" id="plansWhy"></p>
+      <div class="seg wide" id="plansInterval" role="tablist" hidden>
+        <button type="button" data-iv="month" class="on" data-i18n>Monthly</button>
+        <button type="button" data-iv="year"><span data-i18n>Yearly</span> <small class="save" data-i18n>2 months free</small></button>
+      </div>
       <div id="plansList" class="plan-pick" role="radiogroup" aria-labelledby="plansTitle"></div>
       <h3 class="feat-title" data-i18n>Every plan includes</h3>
       <ul class="plan-features" id="planFeatures"></ul>
+      <ul class="promise">
+        <li data-i18n>One flat price. No wallet, no per-minute charges, no top-ups.</li>
+        <li data-i18n>No gemstones, pujas or remedies for sale. No ads.</li>
+        <li data-i18n>Readings are written by AI from your calculated chart, and say so.</li>
+      </ul>
+      <details class="card fold sample" id="sampleReading"><summary><h3 data-i18n>See a sample full reading</h3></summary><div id="sampleBody"></div></details>
+      <p class="hint small"><a href="/insights/how-rekha-works" target="_blank" data-i18n>How Rekha works and what it never does</a></p>
     </div>
     <footer class="sheet-foot">
       <button type="button" class="primary block" id="planGo"></button>
       <p class="hint small" id="plansNote"></p>
       <p class="hint small" id="plansCountry"></p>
     </footer>
+  </dialog>
+
+  <dialog id="camDlg" class="sheet cam">
+    <header class="sheet-head"><h2 data-i18n>Scan your palm</h2><button type="button" class="x" data-close aria-label="Close" data-i18n-aria>×</button></header>
+    <div class="cam-body">
+      <div class="cam-frame">
+        <video id="camVideo" playsinline muted autoplay></video>
+        <svg class="hand-guide" viewBox="0 0 200 260" aria-hidden="true"><path d="M60 250 C40 210 35 175 40 150 L30 95 C27 82 44 78 48 92 L58 128 L56 48 C55 33 74 33 75 48 L80 118 L84 32 C85 17 104 17 104 32 L104 118 L112 42 C114 28 132 30 130 45 L124 125 L136 78 C140 64 157 69 153 84 L140 160 C136 195 132 220 128 250 Z"/></svg>
+        <div class="cam-count" id="camCount" hidden></div>
+      </div>
+      <p class="cam-status" id="camStatus" role="status" aria-live="polite" data-i18n>Starting the camera…</p>
+      <ul class="cam-tips"><li data-i18n>Open palm, fingers slightly apart</li><li data-i18n>Fill the outline</li><li data-i18n>Daylight or a bright room</li></ul>
+    </div>
+    <footer class="sheet-foot"><div class="two"><button type="button" class="ghost" id="camManual" data-i18n>Take photo now</button><label class="upload ghost"><span data-i18n>Upload instead</span><input type="file" id="camFile" accept="image/*" hidden></label></div></footer>
+  </dialog>
+
+  <dialog id="todayDlg" class="sheet">
+    <header class="sheet-head"><h2 data-i18n>Choose what Today shows</h2><button type="button" class="x" data-close aria-label="Close" data-i18n-aria>×</button></header>
+    <div class="sheet-body"><p class="hint" data-i18n>Tick what you want to see and use the arrows to change the order. Saved on this device.</p><ol id="todayList" class="sec-list"></ol></div>
+    <footer class="sheet-foot"><div class="two"><button type="button" class="ghost" id="todayReset" data-i18n>Reset</button><button type="button" class="primary" data-close data-i18n>Done</button></div></footer>
   </dialog>
 
   <dialog id="iosDlg">
@@ -283,7 +329,7 @@
 
   <footer class="foot">
     <p><a href="/choghadiya" data-i18n>Choghadiya today</a> · <a href="/rahu-kaal" data-i18n>Rahu Kaal today</a> · <a href="/panchang" data-i18n>Panchang today</a> · <a href="/horoscope" data-i18n>Daily horoscope</a> · <a href="/insights" data-i18n>Insights</a></p>
-    <span data-i18n>For entertainment and self-reflection. Not medical, legal or financial advice.</span> <a href="/privacy" data-i18n>Privacy</a> · <a href="/terms" data-i18n>Terms</a>
+    <span data-i18n>For entertainment and self-reflection. Not medical, legal or financial advice.</span> <a href="/insights/how-rekha-works" data-i18n>How Rekha works</a> · <a href="/privacy" data-i18n>Privacy</a> · <a href="/terms" data-i18n>Terms</a>
   </footer>
   <script type="module" src="/app.js"></script>
 </body>

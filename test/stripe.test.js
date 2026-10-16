@@ -33,7 +33,7 @@ const mock = http.createServer((req, res) => {
       return send({ data: [...prices.values()].filter((x) => x.lookup_key === key) });
     }
     if (req.method === 'POST' && req.url === '/prices') {
-      const pr = { id: `price_${prices.size + 1}`, lookup_key: p.lookup_key, currency: p.currency, unit_amount: +p.unit_amount, metadata: { plan: p['metadata[plan]'], tier: p['metadata[tier]'] }, options: p };
+      const pr = { id: `price_${prices.size + 1}`, lookup_key: p.lookup_key, currency: p.currency, unit_amount: +p.unit_amount, recurring: { interval: p['recurring[interval]'] }, metadata: { plan: p['metadata[plan]'], tier: p['metadata[tier]'], interval: p['metadata[interval]'] }, options: p };
       prices.set(pr.id, pr); return send(pr);
     }
     let pm = /^\/products\/(\w+)/.exec(req.url);
@@ -194,4 +194,33 @@ test('webhooks: checkout completes without the browser, renewal failure, cancell
   sub.status = 'canceled'; sub.items.data[0].current_period_end = now() - DAY;
   await webhook({ id: 'evt_3', type: 'customer.subscription.deleted', data: { object: sub } });
   assert.equal((await c.call('/api/me')).body.plan.key, 'free');
+});
+
+test('yearly plans: two months free, own Stripe price, switch between monthly and yearly', async () => {
+  const at = async (q) => (await (await fetch(`${base}/api/pricing?${q}`)).json());
+  const inr = await at('tz=Asia/Kolkata');
+  assert.deepEqual([inr.yearly.solo.amount, inr.yearly.couple.amount, inr.yearly.family.amount, inr.yearly.solo.interval], [490, 990, 1990, 'year']);
+  const us = await at('tz=America/New_York');
+  assert.deepEqual([us.yearly.solo.amount, us.yearly.family.amount], [49.99, 149.99]);
+  assert.equal((await at('tz=Asia/Kuala_Lumpur')).yearly.solo.amount, 98.99);
+
+  const c = await signedIn('yearly@example.com');
+  const s = await c.post('/api/billing/subscribe', { plan: 'couple', interval: 'year', tz: 'Asia/Kolkata' });
+  assert.equal(s.status, 200);
+  const yp = [...prices.values()].find((x) => x.lookup_key === 'rekha_couple_C_year_v1');
+  assert.ok(yp, 'yearly price created with its own lookup key');
+  assert.equal(yp.options['recurring[interval]'], 'year');
+  assert.equal(yp.unit_amount, 2499, 'USD base: 24.99 a year (2.49 x 10, rounded to .99)');
+  assert.equal(yp.options['currency_options[inr][unit_amount]'], '99000');
+  const sid = [...sessions.values()].at(-1).id;
+  pay(sid);
+  assert.equal((await c.post('/api/billing/verify', { sessionId: sid })).status, 200);
+  let me = (await c.call('/api/me')).body;
+  assert.deepEqual([me.plan.key, me.plan.interval], ['couple', 'year']);
+  // Same plan, same interval: refused. Same plan, monthly: allowed.
+  assert.equal((await c.post('/api/billing/subscribe', { plan: 'couple', interval: 'year' })).status, 400);
+  const sw = await c.post('/api/billing/subscribe', { plan: 'couple', interval: 'month' });
+  assert.equal(sw.body.changed, true);
+  me = (await c.call('/api/me')).body;
+  assert.deepEqual([me.plan.key, me.plan.interval], ['couple', 'month']);
 });

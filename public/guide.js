@@ -211,6 +211,37 @@ export const FACE_GUIDE = {
 };
 
 // Simple labelled diagrams (inline SVG, colours follow the theme).
+// ---------------- Indian and Western signs ----------------
+export const SIGN_NOTE = {
+  title: 'Why is my sign different from other apps?',
+  body: 'Western astrology and magazine horoscopes use your sun sign on the tropical zodiac, which follows the seasons. Indian astrology uses the sidereal zodiac, which follows the stars and today starts about 24 degrees earlier. So most people\'s Indian Sun sign is one sign before their Western sun sign. Indian daily horoscopes also use your Moon sign (rashi) rather than your Sun sign. None of these is wrong: each answers a different question.',
+};
+
+// ---------------- sample full reading (shown on the plans screen) ----------------
+// A made-up person; the facts are calculated for 15 May 1990, 8:30 am, Ahmedabad.
+export const SAMPLE_READING = {
+  intro: 'A sample for a made-up person, Asha, born on 15 May 1990 at 8:30 am in Ahmedabad. Your own reading is written the same way, from your chart, palm and face.',
+  sections: [
+    ['Who you are', 'With a Mithuna (Gemini) ascendant and Jupiter in your first house, you come across as curious, talkative and quick to learn, and people tend to trust your judgement. Your Dhanu Moon adds optimism: you get over setbacks by looking at the bigger picture.',
+      [['Lagna (ascendant)', 'Mithuna'], ['Jupiter', 'Mithuna', 1], ['Moon sign (Rashi)', 'Dhanu']]],
+    ['Love and relationships', 'Your Moon sits in the house of partnership, so close relationships shape how you feel from day to day. Your palm agrees: a long, strongly curved heart line is traditionally read as warm and openly affectionate. You do best with a partner who enjoys conversation and gives you room to grow.',
+      [['Moon', 'Dhanu', 7], ['Heart line', 'Long, strongly curved']]],
+    ['Career and money', 'Venus in your tenth house favours work with people, design or teaching, anywhere taste and tact count. A forked head line, the "writer\'s fork", shows someone who sees several sides of a problem, which suits advisory and creative roles. With the Sun in the twelfth house, your best work may happen quietly before it is noticed.',
+      [['Venus', 'Meena', 10], ['Sun', 'Vrishabha', 12], ['Head line', 'Forked at the end']]],
+    ['Your current phase', 'You are in the Rahu period, with a Venus sub-period until December 2026. Rahu periods bring ambition and new directions; the Venus sub-period puts relationships, comfort and creative work in focus. It is a good time to finish what you have started rather than add new plans.',
+      [['Current dasha', ['Rahu', 'Venus']]]],
+    ['One thing to work on', 'Saturn in the eighth house asks for patience with shared money and long-term commitments. Make slow, written plans for joint finances and review them every few months.',
+      [['Saturn', 'Makara', 8]]],
+  ],
+};
+
+// ---------------- daily alerts ----------------
+export const ALERTS_HELP = {
+  ios: 'On iPhone, alerts work once Rekha is on your Home Screen (iOS 16.4 or later). Tap Share, then Add to Home Screen, open Rekha from there and turn alerts on.',
+  blocked: 'Notifications are blocked for this site. Allow them in your browser\'s site settings, then try again.',
+  unsupported: 'This browser cannot show alerts. Try Chrome on Android, or Rekha from your iPhone Home Screen.',
+};
+
 export const PALM_SVG = () => `<svg viewBox="0 0 220 260" class="diagram" role="img" aria-label="${t('Palm diagram showing the major lines and mounts')}">
   <path d="M60 250 C40 200 38 160 44 128 L40 70 C40 58 56 56 58 70 L64 112 L66 40 C66 26 84 26 84 40 L86 104 L94 30 C94 16 112 16 112 30 L110 104 L120 42 C122 28 140 30 138 44 L130 112 L148 76 C154 64 170 70 164 84 L146 150 C140 190 150 220 156 250 Z" fill="var(--surface)" stroke="var(--muted)" stroke-width="2"/>
   <path d="M58 132 C90 120 120 118 146 126" stroke="#d14b72" stroke-width="3" fill="none"/>

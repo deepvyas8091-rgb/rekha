@@ -17,6 +17,12 @@ const fake = {
     create: async (params) => {
       calls.push(params);
       const usage = { input_tokens: 1000, output_tokens: 500, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 };
+      if (params.tool_choice?.name === 'write_reading') {
+        return { usage, content: [{ type: 'tool_use', input: { sections: [
+          { heading: 'Who you are', text: `Reading (${params.model})`, basis: ['F1', 'F2', 'F999', 'f3'] },
+          { heading: 'Your current phase', text: 'A calm phase.', basis: [] },
+        ] } }] };
+      }
       if (params.tool_choice) return { usage, content: [{ type: 'tool_use', input: { isPalm: true, photoQuality: 'good', lines: { heart: { present: true, length: 'long', confidence: 0.9 } } } }] };
       return { usage, content: [{ type: 'text', text: `Reading (${params.model})` }] };
     },
@@ -120,4 +126,52 @@ test('owner dashboard reports cache and budget figures', async () => {
   assert.ok(r.ai.spentUsd > 0);
   assert.equal(typeof r.ai.cacheHitPct, 'number');
   assert.ok(r.aiByKind.length >= 3);
+});
+
+// ---- the competitor-gap fixes ---------------------------------------------------
+test('readings show their working: sections cite only facts they were given', async () => {
+  let cookie = '';
+  const call = async (p, body) => {
+    const r = await fetch(base + p, { method: body ? 'POST' : 'GET', headers: { 'content-type': 'application/json', cookie }, body: body && JSON.stringify(body) });
+    const sc = r.headers.get('set-cookie'); if (sc) cookie = sc.split(';')[0];
+    return { status: r.status, body: await r.json() };
+  };
+  await call('/api/auth/dev', { email: 'basis@example.com' });
+  const prof = (await call('/api/profiles', { name: 'Asha', birth: { date: '1990-05-15', time: '08:30', lat: 23.03, lon: 72.58, tz: 'Asia/Kolkata' } })).body;
+  const r = await call('/api/reading', { profileId: prof.id, language: 'en' });
+  assert.equal(r.status, 200);
+  const req = calls.find((c) => c.tool_choice?.name === 'write_reading');
+  assert.match(req.messages[0].content, /F1 Lagna \(ascendant\): Mithuna/);
+  assert.match(req.messages[0].content, /Moon: Dhanu \(house 7\)/);
+  assert.deepEqual(r.body.sections[0].basis, ['F1', 'F2', 'F3'], 'unknown ids dropped, case fixed');
+  assert.deepEqual(r.body.sections[1].basis, []);
+  assert.equal(r.body.basis.find((b) => b.id === 'F1').value, 'Mithuna');
+  assert.match(r.body.text, /^Who you are\n/);
+  // Saved with its working, and returned again from the profile.
+  assert.equal((await call(`/api/reading/${prof.id}`)).body.sections.length, 2);
+});
+
+test('see before you pay: palm lines and a short reading work without an account, 2 a day', async () => {
+  const fd = () => { const f = new FormData(); f.append('photo', new Blob([crypto.randomBytes(64)], { type: 'image/jpeg' }), 'p.jpg'); return f; };
+  const ip = { 'x-forwarded-for': '203.0.113.77' };
+  const p1 = await fetch(`${base}/api/palm`, { method: 'POST', body: fd(), headers: ip });
+  assert.equal(p1.status, 200);
+  const b1 = await p1.json();
+  assert.equal(b1.saved, false);
+  assert.ok(b1.palm.facts.length > 0, 'full line reading for a visitor');
+  assert.equal((await fetch(`${base}/api/palm`, { method: 'POST', body: fd(), headers: ip })).status, 200);
+  const third = await fetch(`${base}/api/palm`, { method: 'POST', body: fd(), headers: ip });
+  assert.equal(third.status, 401);
+  assert.equal((await third.json()).code, 'signin');
+
+  const birth = { date: '1990-05-15', time: '08:30', lat: 23.03, lon: 72.58, tz: 'Asia/Kolkata' };
+  const post = (body) => fetch(`${base}/api/reading`, { method: 'POST', headers: { 'content-type': 'application/json', ...ip }, body: JSON.stringify(body) });
+  const g = await post({ birth, name: 'Asha', palm: b1.palm, language: 'en' });
+  assert.equal(g.status, 200);
+  const gb = await g.json();
+  assert.equal(gb.guest, true);
+  assert.equal(gb.kind, 'teaser');
+  assert.ok(gb.basis.some((b) => b.group === 'palm'), 'the visitor\'s palm scan is part of the facts');
+  // Nothing to read without birth details.
+  assert.equal((await post({ profileId: 'x' })).status, 401);
 });

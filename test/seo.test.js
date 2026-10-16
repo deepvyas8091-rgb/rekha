@@ -107,3 +107,23 @@ test('legal pages: absolute canonical, kept out of search while drafts', async (
   const r = await fetch(`${base}/hi/terms`, { redirect: 'manual' });
   assert.equal(r.headers.get('location'), '/terms');
 });
+
+test('trust page: listed, linked from every page, short link, honest labels', async () => {
+  const page = await fetch(`${base}/insights/how-rekha-works`);
+  assert.equal(page.status, 200);
+  const html = await page.text();
+  assert.match(html, /No wallet, no per-minute fees, no shop/);
+  assert.match(html, /FAQPage/);
+  const r = await fetch(`${base}/hi/trust`, { redirect: 'manual' });
+  assert.equal(r.status, 301);
+  assert.equal(r.headers.get('location'), '/hi/insights/how-rekha-works');
+  // Footer of the public pages and the app shell link to it.
+  assert.match(await (await fetch(`${base}/choghadiya/mumbai`)).text(), /href="\/insights\/how-rekha-works"/);
+  assert.match(await (await fetch(`${base}/`)).text(), /href="\/insights\/how-rekha-works"/);
+  assert.match(await (await fetch(`${base}/llms.txt`)).text(), /No wallet, no per-minute fees/);
+  // Horoscope pages explain the Indian vs Western sign difference; the rules-based
+  // fallback text (demo mode) is not labelled as AI.
+  const horo = await (await fetch(`${base}/horoscope`)).text();
+  assert.match(horo, /Why is my sign different here\?/);
+  assert.doesNotMatch(await (await fetch(`${base}/horoscope/aries`)).text(), /class="ai-label"/);
+});

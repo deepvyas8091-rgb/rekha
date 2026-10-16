@@ -14,6 +14,7 @@ import { LINE_SCHEMA } from '../readings/palm.js';
 import { FACE_BANNED_TOPICS } from '../readings/face.js';
 import { logAi, aiSpendThisMonth, getPalmCache, putPalmCache } from '../db.js';
 import { scriptOk } from '../i18n/script.js';
+import { basisLines, cleanBasis } from './basis.js';
 
 const MODEL_VISION = process.env.MODEL_VISION || 'claude-haiku-5-5';
 const MODEL_REPORT = process.env.MODEL_REPORT || 'claude-haiku-5-5';
@@ -179,6 +180,73 @@ export async function narrate({ kind, facts, language = 'en', name, paid = false
   });
   track(`narrate-${kind}`, model, res.usage);
   return res.content.filter((c) => c.type === 'text').map((c) => c.text).join('\n');
+}
+
+// Readings that show their working: the model writes sections and cites the fact ids
+// (F1, F2 ...) each one is based on. Ids it was not given are dropped (see basis.js).
+const SECTION_BRIEF = {
+  teaser: 'Write a short free reading in 3 or 4 sections, 150 to 220 words in total: who this person is from the chart, one section from the palm or face if present, and today\'s best window if given. The last section says in one or two sentences what the full reading adds (love, career, current phase, best days). No pressure, no fear.',
+  full: 'Write a unified profile in these sections: Who you are, Love and relationships, Career and money, Your current phase (use the dasha), Your best days and times this week, One thing to work on. Where palm, face and chart agree, say so explicitly ("your palm and chart both point to..."). 450 to 650 words in total.',
+};
+const SECTION_RULES = `
+Each section needs: a short heading, the text (1 to 3 short paragraphs), and basis: the ids of the numbered facts the section is built on (at least one, at most six).
+Only cite ids from the list. Do not refer to the ids inside the text itself. Write headings and text in the requested language.`;
+const READING_TOOL = {
+  name: 'write_reading',
+  description: 'Submit the reading as sections, each citing the fact ids it is based on.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      sections: {
+        type: 'array',
+        items: { type: 'object', properties: { heading: { type: 'string' }, text: { type: 'string' }, basis: { type: 'array', items: { type: 'string' } } }, required: ['heading', 'text', 'basis'] },
+      },
+    },
+    required: ['sections'],
+  },
+};
+export const sectionsText = (sections) => sections.map((s) => `${s.heading}\n${s.text}`).join('\n\n');
+
+/** A teaser or full reading as sections with their basis. Returns { text, sections }. */
+export async function narrateReading({ kind, facts, basis, language = 'en', name, paid = false }) {
+  const lang = LANGUAGES[language] || 'English';
+  if (!client) return demoReading(kind, basis);
+  checkBudget(paid);
+  const model = kind === 'teaser' ? MODEL_CHAT : MODEL_REPORT;
+  const cache = cacheMode(`narrate:${model}`);
+  const res = await client.messages.create({
+    model,
+    max_tokens: kind === 'full' ? 2200 : 900,
+    system: [{ type: 'text', text: READER_SYSTEM, ...(cache ? { cache_control: ephemeral } : {}) }],
+    tools: [READING_TOOL],
+    tool_choice: { type: 'tool', name: 'write_reading' },
+    messages: [{
+      role: 'user',
+      content: `${SECTION_BRIEF[kind] || SECTION_BRIEF.teaser}${SECTION_RULES}\nWrite in ${lang}.${name ? ` The user's name is ${name}.` : ''}\nNumbered facts:\n${basisLines(basis)}\nAll facts (JSON):\n${JSON.stringify(facts)}`,
+    }],
+  });
+  track(`narrate-${kind}`, model, res.usage);
+  const raw = res.content.find((c) => c.type === 'tool_use')?.input?.sections;
+  if (!Array.isArray(raw) || !raw.length) throw new Error('Reading model returned no sections');
+  const sections = raw.filter((s) => s && typeof s.text === 'string' && s.text.trim())
+    .slice(0, 8).map((s) => ({ heading: String(s.heading || '').trim().slice(0, 120), text: s.text.trim(), basis: cleanBasis(s.basis, basis) }));
+  return { text: sectionsText(sections), sections };
+}
+
+function demoReading(kind, basis) {
+  const pick = (group, n = 3) => basis.filter((b) => b.group === group).slice(0, n);
+  const line = (b) => `${b.name}: ${Array.isArray(b.value) ? b.value.join(' / ') : b.value}${b.house ? ` (house ${b.house})` : ''}`;
+  const chart = pick('chart', 3);
+  const dasha = basis.filter((b) => b.name === 'Current dasha' || b.name === 'Sade Sati');
+  const sections = [
+    { heading: 'Who you are', text: `Demo text (add ANTHROPIC_API_KEY for the AI-written version). ${chart.map(line).join('. ')}.`, basis: chart.map((b) => b.id) },
+    dasha.length && { heading: 'Your current phase', text: `${dasha.map(line).join('. ')}.`, basis: dasha.map((b) => b.id) },
+    pick('palm').length && { heading: 'Your palm', text: `${pick('palm').map(line).join('. ')}.`, basis: pick('palm').map((b) => b.id) },
+    pick('face').length && { heading: 'Your face', text: `${pick('face').map(line).join('. ')}.`, basis: pick('face').map((b) => b.id) },
+    pick('today', 2).length && { heading: 'Today', text: `${pick('today', 2).map(line).join('. ')}.`, basis: pick('today', 2).map((b) => b.id) },
+  ].filter(Boolean);
+  if (kind === 'teaser') sections.push({ heading: 'What the full reading adds', text: 'Love, career, your current phase and your best days, written from the same facts.', basis: chart.slice(0, 1).map((b) => b.id) });
+  return { text: sectionsText(sections), sections, demo: true };
 }
 
 /** Follow-up question answered from stored facts plus recent chat history. */

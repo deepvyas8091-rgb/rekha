@@ -188,6 +188,12 @@ The site and app work in 15 languages: English, Hindi, Gujarati, Marathi, Bengal
 - **Native review (recommended before marketing in a language):** in `/admin` → Languages, **Export** that language. A native speaker edits the `"text"` values in the file (any changed line counts as reviewed). **Import** it back. Reviewed lines are locked: the machine translation never overwrites them.
 - To stop automatic translation, add the Variable `TRANSLATE_AUTO` = `0`; you can still run it from `/admin`.
 
+## Step 8c: Daily alerts and yearly plans (nothing to set up)
+
+- **Daily alerts** (morning summary and "Rahu Kaal in 10 minutes") work on their own. The app creates its push keys on first start and keeps them in the database on the volume. Optional: set `VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_KEY` in Railway Variables if you ever move to a new database and want existing alert subscribers to keep working. On iPhone, alerts only work once Rekha is added to the Home Screen (iOS 16.4 or later); the app tells people this.
+- **Yearly plans** (10 months' price, so two months free) are created in Stripe automatically on the first yearly checkout, with lookup keys like `rekha_solo_C_year_v1`. In the Stripe customer portal settings, allow switching between the monthly and yearly prices if you want customers to switch there too. With Razorpay, only monthly plans are offered.
+- **Trust page**: rekha.io/trust goes to "How Rekha works". If you ever add human astrologers, a shop or ads, change that page in the same release; it promises none of these.
+
 ## Step 9: Before you tell anyone
 
 - [ ] A lawyer reviews `/privacy` and `/terms` (drafts are included, with [brackets] to fill in).

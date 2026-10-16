@@ -86,6 +86,7 @@ export function billingJsonRoutes(app) {
       const key = req.body.plan;
       const plan = PLANS[key];
       if (!plan || !plan.envPlanId) throw Object.assign(new Error('Unknown plan'), { status: 400 });
+      if (req.body.interval === 'year') throw Object.assign(new Error('Yearly plans are not available yet. Please choose monthly.'), { status: 400 });
       if (!razorpayConfigured() || !process.env[plan.envPlanId]) throw Object.assign(new Error('Payments are not set up yet'), { status: 501 });
       const sub = await rzp('/subscriptions', {
         plan_id: process.env[plan.envPlanId],

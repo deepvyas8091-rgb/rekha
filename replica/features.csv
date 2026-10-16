@@ -1,0 +1,16 @@
+feature,original,size,status,evidence
+Free Choghadiya Rahu Kaal Hora Panchang festival calendar for any city,yes,,live,
+Vedic kundli dasha Sade Sati Manglik,yes,,live,
+36-gun kundli matching,yes,,live,
+Daily Moon-sign horoscope,yes,,live,
+AI palm reading (photo deleted) and on-device face reading,yes,,live,
+15 languages and 7000-city search,yes,,live,
+"Flat price by country, no ads, no wallet, no human upsell",yes,,live,
+"How this was worked out: facts behind each reading paragraph, AI clearly labelled",no,S,planned,"ai_replacing_people 7 reviews/2 sources; wrong_or_generic_predictions 14/2"
+"See before you pay: full free palm and face results without sign-up, sample full reading on plans screen",no,S,planned,"paywall_and_wallet_pressure 28/4"
+Sign-difference explainer (Indian Moon sign vs Western sun sign) wherever a sign is shown,no,S,planned,"wrong_sign_or_calculation 6/2"
+Trust page and promise (method, photo deletion, no remedies or gemstones for sale),no,S,planned,"scam_and_trust 15/3"
+Daily timing alerts by web push (morning summary and Rahu Kaal reminder),no,M,planned,"widget requests 4/1 (thin)"
+Guided palm capture with outline countdown and quality check,no,M,planned,"scan_quality 4/1 (thin)"
+Yearly plan (pricing item for /replica-launch),no,S,planned,"ads_and_popups 5/2; yearly ad-free request 1"
+Choose what the Today screen shows,no,S,planned,"customisation 3/1 (thin)"

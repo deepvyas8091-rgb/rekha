@@ -6,6 +6,7 @@ import { page, md, esc, slugify, setFooterLinks } from './layout.js';
 import timings from '../content/insights-timings.js';
 import panchangArticles from '../content/insights-panchang.js';
 import readings from '../content/insights-readings.js';
+import about from '../content/about.js';
 import { CITIES } from '../data/cities.js';
 import { panchang, goodBadTimes } from '../engine/index.js';
 import { dailyHoroscope, SIGN_SLUGS } from '../engine/horoscope.js';
@@ -13,10 +14,10 @@ import { RASHI } from '../engine/constants.js';
 import { priceFor } from '../pricing.js';
 import { tFor, dataT, monthT, LANGS, localePath, readyLangs, isReady, articleFor, articleLangs } from '../i18n/index.js';
 
-export const ARTICLES = [...timings, ...panchangArticles, ...readings];
+export const ARTICLES = [...timings, ...panchangArticles, ...readings, ...about];
 const BY_SLUG = new Map(ARTICLES.map((a) => [a.slug, a]));
-const CATEGORY_ORDER = ['Good and bad times', 'Panchang', 'Kundli', 'Palm reading', 'Face reading', 'Other traditions'];
-const UPDATED = '2026-10-13'; // bump when articles are edited
+const CATEGORY_ORDER = ['Good and bad times', 'Panchang', 'Kundli', 'Palm reading', 'Face reading', 'Other traditions', 'About Rekha'];
+const UPDATED = '2026-10-16'; // bump when articles are edited
 
 const CITY = CITIES.map((c) => ({ ...c, slug: slugify(c.name.replace(/\(.*\)/, '')) }));
 const CITY_BY_SLUG = new Map(CITY.map((c) => [c.slug, c]));
@@ -116,6 +117,9 @@ export function seoRoutes(app) {
     }));
   });
 
+  // Short link to the trust page, in the visitor's language.
+  app.get('/trust', (req, res) => res.redirect(301, localePath(langOf(req), '/insights/how-rekha-works')));
+
   // ---------- daily city pages ----------
   const HUBS = {
     choghadiya: ['Choghadiya Today: Shubh, Labh and Amrit Timings by City', 'Choghadiya today', "Day and night Choghadiya for 40 cities, calculated from each city's sunrise.", "Today's Choghadiya for Indian and Southeast Asian cities: Amrit, Shubh, Labh, Char and the periods to avoid, from local sunrise."],
@@ -127,7 +131,7 @@ export function seoRoutes(app) {
   void [N('Choghadiya Today: Shubh, Labh and Amrit Timings by City'), N('Choghadiya today'), N("Day and night Choghadiya for 40 cities, calculated from each city's sunrise."), N("Today's Choghadiya for Indian and Southeast Asian cities: Amrit, Shubh, Labh, Char and the periods to avoid, from local sunrise."),
     N('Rahu Kaal Today: Timings by City'), N('Rahu Kaal today'), N("Rahu Kaal, Yamaganda and Gulika for 40 cities, from each city's sunrise."), N("Today's Rahu Kaal, Yamaganda and Gulika Kaal timings for Indian and Southeast Asian cities, with Abhijit Muhurat."),
     N("Today's Panchang by City: Tithi, Nakshatra, Yoga, Karana"), N('Panchang today'), N('The daily Hindu almanac for 40 cities: tithi, nakshatra, yoga, karana, sunrise and festivals.'), N("Today's Panchang for your city: tithi, nakshatra, yoga, karana, sunrise, sunset, moonrise and festivals."),
-    N('Good and bad times'), N('Panchang'), N('Kundli'), N('Palm reading'), N('Face reading'), N('Other traditions')];
+    N('Good and bad times'), N('Panchang'), N('Kundli'), N('Palm reading'), N('Face reading'), N('Other traditions'), N('About Rekha')];
   for (const [type, [title, h1, lede, description]] of Object.entries(HUBS)) {
     app.get(`/${type}`, (req, res) => {
       const lang = langOf(req);
@@ -296,7 +300,8 @@ export function seoRoutes(app) {
           const h = dailyHoroscope(date, i);
           return `<a class="cell link-card" href="/horoscope/${s}"><b>${esc(RASHI[i].hi)}</b><span class="val">${esc(signName(i))}</span><span class="sub">${esc(tt('Overall'))} ${'★'.repeat(h.overall)}${'☆'.repeat(5 - h.overall)} · ${esc(tt('Moon in house {n} from your sign', { n: h.moonTransit.house }))}</span></a>`;
         }).join('')}</div>
-        <p class="hint">${esc(tt('Not sure of your rashi? It is the sign the Moon was in when you were born.'))} <a href="/?tab=chart">${esc(tt('Find it free'))}</a> · <a href="/insights/lagna-vs-rashi-vs-sun-sign">${esc(tt('Lagna vs rashi vs sun sign'))}</a></p>`,
+        <p class="hint">${esc(tt('Not sure of your rashi? It is the sign the Moon was in when you were born.'))} <a href="/?tab=chart">${esc(tt('Find it free'))}</a> · <a href="/insights/lagna-vs-rashi-vs-sun-sign">${esc(tt('Lagna vs rashi vs sun sign'))}</a></p>
+        <aside class="card sign-note"><strong>${esc(tt('Why is my sign different here?'))}</strong><p>${esc(tt('Magazines and Western apps use your sun sign on the tropical zodiac. Indian horoscopes use your Moon sign (rashi) on the sidereal zodiac, which starts about 24 degrees earlier. So your rashi is often a different sign. Both are correct for their own system.'))}</p></aside>`,
       });
     }));
   });
@@ -327,7 +332,7 @@ export function seoRoutes(app) {
           crumbs: [[tt('Horoscope'), '/horoscope'], [sign, `/horoscope/${SIGN_SLUGS[i]}`]],
           jsonld: faqLd(faq),
           body: `
-            <article class="card horo"><div class="prose">${esc(h.text)}</div>
+            <article class="card horo">${h.ai ? `<p class="ai-label">${esc(tt('Written by AI from today\'s planet positions for {sign}. The scores are calculated, not written by AI.', { sign: dt(RASHI[i].sa) }))} <a href="/insights/how-rekha-works">${esc(tt('How Rekha works'))}</a></p>` : ''}<div class="prose">${esc(h.text)}</div>
             <div class="scores">${bar(tt('Love'), h.scores.love)}${bar(tt('Career'), h.scores.career)}${bar(tt('Money'), h.scores.money)}${bar(tt('Energy'), h.scores.energy)}</div>
             <p class="hint">${esc(tt('Lucky colour'))}: <strong>${esc(colours)}</strong> · ${esc(tt('Lucky number'))}: <strong>${h.lucky.number}</strong></p></article>
             <section class="card"><h2>${esc(tt("Today's planets for {sign}", { sign: dt(RASHI[i].sa) }))}</h2>
@@ -409,7 +414,8 @@ Sitemap: ${baseOf(req)}/sitemap.xml
 Key facts:
 - Timings use the sunrise and sunset of the chosen city, sidereal positions with Lahiri ayanamsa, and the Hindu day running from sunrise to sunrise. They were checked against a reference almanac (Drik Panchang) for sample cities.
 - Daily pages cover ${CITY.length} cities in India, Southeast Asia, the Gulf and elsewhere; the app itself searches about 7,000 cities worldwide.
-- Free: timings, Panchang, festival calendar, kundli, matching score, daily horoscope, one palm scan and a short AI reading a month. Premium (Solo, Couple, Family) adds personal day ratings, daily AI guidance and full readings; prices are set per country (in India from ₹${india.amount} a month).
+- Free: timings, Panchang, festival calendar, kundli, matching score, daily horoscope and daily timing alerts. Palm and face reading and a short AI reading work without an account. Premium (Solo, Couple, Family) adds personal day ratings, daily AI guidance and full readings at one flat price per month or year, set per country (in India from ₹${india.amount} a month or ₹${priceFor('solo', 'IN', 'year').amount} a year).
+- No wallet, no per-minute fees, no human astrologers, no gemstones or remedies for sale, no ads. Readings are labelled as AI-written and list the calculated facts each section is based on. Details: ${base}/insights/how-rekha-works
 - Face reading runs on the user's phone; only measurements are sent. Palm photos are deleted after reading.
 - Content is for entertainment and self-reflection, not medical, legal or financial advice.
 
