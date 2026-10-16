@@ -456,3 +456,8 @@ dialog.cam { width: min(96vw, 520px); }
 .method { font-size: var(--fs-xs); max-width: 70ch; }
 .cal-table td, .cal-table th { white-space: nowrap; font-size: var(--fs-sm); }
 .cal-table td:last-child { white-space: normal; min-width: 160px; }
+.subscribe .trap { position: absolute; left: -9999px; width: 1px; height: 1px; opacity: 0; }
+.subscribe .form { display: grid; gap: var(--s2); }
+.primary.small { padding: 6px 12px; min-height: 34px; font-size: var(--fs-sm); }
+.place-guess { display: grid; gap: var(--s2); background: var(--neutral-bg); color: var(--ink); border-radius: var(--radius-sm); padding: var(--s3); margin-bottom: var(--s3); font-size: var(--fs-sm); }
+.place-guess .two { display: flex; flex-wrap: wrap; gap: var(--s2); align-items: center; }

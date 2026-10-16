@@ -20,13 +20,16 @@ import * as store from './db.js';
 import { sessionMiddleware, requireUser, authRoutes, hashPassword } from './auth.js';
 import { billingRoutes, billingJsonRoutes, billingConfigured } from './billing.js';
 import { priceFor, visitorCountry } from './pricing.js';
-import { searchPlaces } from './data/places.js';
+import { searchPlaces, nearestPlace, largestInTz } from './data/places.js';
 import { devLoginEnabled, isTest, clientIp } from './env.js';
 import { seoRoutes, ARTICLES, clearPageCache } from './seo/routes.js';
 import { t as tr, isLang, LANG_CODES, localePath, languageNames, packFor, readyLangs, coverage, invalidate } from './i18n/index.js';
 import { renderShell } from './i18n/shell.js';
 import { pushRoutes, pushTick } from './push.js';
 import { assetRoutes } from './assets.js';
+import { subscriberRoutes, campaignTick } from './subscribers.js';
+import { backupRoutes, nightlyBackup, listBackups } from './backup.js';
+import { emailRoutes, festivalEmailTick, emailCampaignTick } from './email.js';
 import { submitIndexNow } from './seo/indexnow.js';
 import { festivalCalendar } from './engine/festivals.js';
 import { runTranslations, status as translateStatus, exportLang, importLang } from './i18n/jobs.js';
@@ -140,7 +143,11 @@ function natalOf(birth) {
   return { nakshatraIndex: v.birthNakshatraIndex, moonSign: v.moonSignIndex, nakshatra: v.birthNakshatra, rashi: v.moonSign, lagna: v.lagna.signName };
 }
 
+app.locals.countryOf = (req, tz) => visitorCountry(req, tz);
 pushRoutes(app, limit);
+subscriberRoutes(app, { isAdmin: (req) => isAdmin(req), limit, countryOf: app.locals.countryOf, baseOf: (req) => (process.env.PUBLIC_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '') });
+backupRoutes(app, (req) => isAdmin(req));
+emailRoutes(app, (req) => isAdmin(req));
 
 // ---- session + catalogue --------------------------------------------------
 app.get('/api/meta', wrap(async (_req, res) => res.set('Cache-Control', 'public, max-age=300, s-maxage=300').json({
@@ -156,7 +163,7 @@ app.get('/api/me', (req, res) => {
   const plan = planOf(u);
   const used = store.usageFor(u.id, monthKey());
   res.json({
-    user: { id: u.id, name: u.name, email: u.email, phone: u.phone, hasPassword: !!u.password_hash, hasGoogle: !!u.google_sub },
+    user: { id: u.id, name: u.name, email: u.email, phone: u.phone, hasPassword: !!u.password_hash, hasGoogle: !!u.google_sub, marketing: !!u.marketing_opt_in },
     plan: { key: planKey(u), name: plan.name, profiles: plan.profiles, status: u.plan_status, renewsAt: u.plan_renews_at, personal: plan.personal, interval: u.plan_interval || 'month' },
     allowance: Object.fromEntries(Object.keys(plan.limits).map((k) => [k, { used: used[k] || 0, max: quotaLimit(u, k) }])),
     profiles: store.listProfiles(u.id).map((p, i) => ({ id: p.id, name: p.name, relation: p.relation, birth: p.birth, natal: p.natal, hasPalm: !!p.palm, hasFace: !!p.face, hasReading: !!p.reading, locked: i >= plan.profiles })),
@@ -166,6 +173,7 @@ app.get('/api/me', (req, res) => {
 // Right to erasure (India DPDP Act): deletes the account and every profile.
 app.delete('/api/me', requireUser, wrap(async (req, res) => {
   if (req.user.subscription_id && planOf(req.user) !== PLANS.free) throw httpError(400, 'Cancel your subscription first, then delete the account.');
+  store.db.prepare('DELETE FROM push_subs WHERE user_id = ?').run(req.user.id);
   store.deleteUser(req.user.id);
   res.setHeader('Set-Cookie', 'rk_sess=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0');
   res.json({ ok: true });
@@ -175,6 +183,31 @@ app.delete('/api/me', requireUser, wrap(async (req, res) => {
 app.get('/api/places', (req, res) => {
   res.set('Cache-Control', 'public, max-age=86400');
   res.json(searchPlaces(String(req.query.q || '').slice(0, 60)));
+});
+
+// Where the visitor probably is, for the first visit (they can change it, or use GPS for the exact spot):
+//   1. Cloudflare's visitor location headers (city-level, from the network), when the site runs behind
+//      Cloudflare with "Add visitor location headers" turned on;
+//   2. a point the browser sends (GPS), named after the nearest city;
+//   3. the biggest city in the browser's time zone.
+app.get('/api/geo', (req, res) => {
+  res.set('Cache-Control', 'private, no-store');
+  const qlat = +req.query.lat, qlon = +req.query.lon;
+  if (Number.isFinite(qlat) && Number.isFinite(qlon) && req.query.lat !== undefined) {
+    const near = nearestPlace(qlat, qlon, 150);
+    return res.json({ name: near?.name || null, region: near?.region || null, country: near?.country || null, lat: +qlat.toFixed(4), lon: +qlon.toFixed(4), tz: near?.tz || null, source: 'gps' });
+  }
+  if (req.get('cf-ray')) {
+    const lat = +req.get('cf-iplatitude'), lon = +req.get('cf-iplongitude');
+    const near = Number.isFinite(lat) && Number.isFinite(lon) && (lat || lon) ? nearestPlace(lat, lon) : null;
+    if (near) return res.json({ ...near, source: 'network' });
+    const city = req.get('cf-ipcity'); const country = req.get('cf-ipcountry');
+    const byName = city ? searchPlaces(city, 5).find((p) => !country || p.country === country) : null;
+    if (byName) return res.json({ ...byName, source: 'network' });
+  }
+  const tz = String(req.query.tz || '');
+  const guess = tz && largestInTz(tz);
+  res.json(guess ? { ...guess, source: 'timezone' } : null);
 });
 
 // Prices for the visitor's country (Stripe). Razorpay charges in rupees only.
@@ -596,7 +629,7 @@ if (!isTest) {
     const pay = billingConfigured() === 'stripe'
       ? ['STRIPE_SECRET_KEY', 'STRIPE_WEBHOOK_SECRET']
       : ['RAZORPAY_KEY_ID', 'RAZORPAY_KEY_SECRET', 'RAZORPAY_WEBHOOK_SECRET', 'RZP_PLAN_SOLO', 'RZP_PLAN_COUPLE', 'RZP_PLAN_FAMILY'];
-    const missing = ['ANTHROPIC_API_KEY', 'GOOGLE_CLIENT_ID', ...pay, 'ADMIN_TOKEN'].filter((k) => !process.env[k]);
+    const missing = ['ANTHROPIC_API_KEY', 'GOOGLE_CLIENT_ID', ...pay, 'ADMIN_TOKEN', 'RESEND_API_KEY'].filter((k) => !process.env[k]);
     console.log(`Payments: ${billingConfigured() || 'off (no Stripe or Razorpay keys yet)'}`);
     if (missing.length) console.log(`Not set yet (features stay off until added): ${missing.join(', ')}`);
     // Work out the festival dates once now, so the first visitor does not wait for it.
@@ -613,6 +646,15 @@ if (!isTest) {
     }
     // Daily timing alerts: check every minute what is due.
     setInterval(() => pushTick().catch((e) => console.error('push', e.message)), 60000).unref();
+    // Owner push campaigns that are due (sent in small batches).
+    setInterval(() => campaignTick().catch((e) => console.error('campaigns', e.message)), 60000).unref();
+    // Email: owner campaigns that are queued, and festival-eve emails (checked every 15 minutes).
+    setInterval(() => emailCampaignTick().catch((e) => console.error('email campaigns', e.message)), 60000).unref();
+    setInterval(() => festivalEmailTick().then((r) => r && console.log(`Festival email: ${r.sent} sent, ${r.failed} failed`)).catch((e) => console.error('festival email', e.message)), 15 * 60000).unref();
+    // Nightly database backup (checked hourly; one copy a day), first check 10 minutes after start.
+    const backupIfDue = () => { if (!listBackups().some((b) => b.file.includes(new Date().toISOString().slice(0, 10)))) nightlyBackup(); };
+    setTimeout(backupIfDue, 10 * 60000).unref();
+    setInterval(backupIfDue, 3600000).unref();
     // Translate whatever is missing, a minute after start (only new strings after the first run).
     if (!demoMode && process.env.TRANSLATE_AUTO !== '0') {
       setTimeout(() => runTranslations({ articles: ARTICLES }).then((s) => {

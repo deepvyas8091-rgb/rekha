@@ -44,6 +44,22 @@
         <div class="card"><h2>Find a customer</h2>
           <form id="findF" class="two"><input id="findQ" placeholder="Mobile, email or name"><button class="ghost">Search</button></form>
           <div id="findOut"></div></div>
+        <div class="card" id="audCard"><h2>Audience</h2><p class="hint">Loading…</p></div>
+        <div class="card" id="pushCard"><h2>Send a push message</h2>
+          <p class="hint">Goes to phones that turned on alerts and allowed festival reminders and news. Keep it useful: a festival, a new feature, an important change. One or two a month at most, or people turn alerts off.</p>
+          <form id="cmpF" class="form">
+            <input name="title" maxlength="80" placeholder="Title, e.g. Diwali muhurat for your city" required>
+            <input name="body" maxlength="200" placeholder="Message (up to 200 characters)" required>
+            <input name="url" placeholder="Opens (path), e.g. /festivals/diwali" value="/">
+            <div class="two"><input name="langs" placeholder="Languages, e.g. hi,gu (empty = all)"><input name="countries" placeholder="Countries, e.g. IN,AE (empty = all)"></div>
+            <div class="two"><select name="audience"><option value="all">Everyone with alerts</option><option value="accounts">Signed-in users</option><option value="guests">No account</option><option value="paid">Paying</option><option value="free">Free</option></select>
+              <input name="at" type="datetime-local" aria-label="Send at (empty = now)"></div>
+            <p class="hint" id="cmpCount">Audience: …</p>
+            <button class="primary">Schedule</button>
+          </form>
+          <div id="cmpList"></div></div>
+        <div class="card" id="mailCard"><h2>Email</h2><p class="hint">Loading…</p></div>
+        <div class="card" id="bkCard"><h2>Backups</h2><p class="hint">Loading…</p></div>
         <div class="card" id="trCard"><h2>Languages</h2><p class="hint">Loading…</p></div>
         <div class="card"><h2>Plans</h2><table><tr><th>Solo ₹49</th><th>Couple ₹99</th><th>Family ₹199</th></tr>
           <tr><td>${subs.solo || 0}</td><td>${subs.couple || 0}</td><td>${subs.family || 0}</td></tr></table></div>
@@ -53,7 +69,84 @@
           ${s.signupsByDay.map((d) => `<tr><td>${esc(d.day)}</td><td>${d.n}</td></tr>`).join('') || '<tr><td colspan=2>None yet</td></tr>'}</table></div>
         <div class="card"><h2>Recent payment events</h2><table><tr><th>Event</th><th>Subscription</th><th>When</th></tr>
           ${s.recentBilling.map((e) => `<tr><td>${esc(e.type)}</td><td>${esc(e.subscription_id)}</td><td>${new Date(e.received_at).toLocaleString('en-IN')}</td></tr>`).join('') || '<tr><td colspan=3>None yet</td></tr>'}</table></div>`;
-      loadLangs();
+      loadLangs(); loadAudience(); loadBackups(); loadEmail();
+    }
+    const H = () => ({ 'x-admin-token': sessionStorage.getItem('rk_admin'), 'content-type': 'application/json' });
+    async function download(path, name) {
+      const res = await fetch(path, { headers: H() });
+      if (!res.ok) return alert('Download failed');
+      const a = document.createElement('a'); a.href = URL.createObjectURL(await res.blob()); a.download = name; a.click();
+    }
+    // Audience: who can be reached, exports, push campaigns.
+    async function loadAudience() {
+      const r = await fetch('/api/admin/audience', { headers: H() }); if (!r.ok) return;
+      const a = await r.json(); const p = a.push || {};
+      document.getElementById('audCard').innerHTML = `<h2>Audience</h2>
+        <div class="tiles">
+          <div class="tile"><b>Accounts</b><span>${a.accounts}</span></div>
+          <div class="tile"><b>Agreed to updates</b><span>${a.optedIn}</span><small class="hint">accounts that ticked the box</small></div>
+          <div class="tile"><b>Email list</b><span>${a.emailList}</span><small class="hint">${a.emailUnsubscribed} unsubscribed</small></div>
+          <div class="tile"><b>Phones with alerts</b><span>${p.n || 0}</span><small class="hint">${p.news || 0} allow news · ${p.linked || 0} signed in</small></div>
+        </div>
+        <div class="two"><button class="ghost" id="expM">Download marketing list (CSV)</button><button class="ghost" id="expA">Download all accounts (CSV)</button></div>
+        <p class="hint">The marketing list only has people who agreed: accounts that ticked the box and the email list, each with the consent date and, for the email list, a personal unsubscribe link. Import it into an email tool (Brevo, Mailchimp, Resend) and include the unsubscribe link in every email.</p>
+        <details><summary>Alerts by language and country</summary><table><tr><th>Language</th><th>Phones</th></tr>${a.pushByLang.map((x) => `<tr><td>${esc(x.lang)}</td><td>${x.n}</td></tr>`).join('')}</table>
+          <table><tr><th>Country</th><th>Phones</th></tr>${a.pushByCountry.map((x) => `<tr><td>${esc(x.country)}</td><td>${x.n}</td></tr>`).join('')}</table></details>
+        <details><summary>Email sign-ups by page</summary><table>${a.emailBySource.map((x) => `<tr><td>${esc(x.source)}</td><td>${x.n}</td></tr>`).join('') || '<tr><td>None yet</td></tr>'}</table></details>`;
+      document.getElementById('expM').onclick = () => download('/api/admin/export/marketing.csv', 'rekha-marketing.csv');
+      document.getElementById('expA').onclick = () => download('/api/admin/export/accounts.csv', 'rekha-accounts.csv');
+      document.getElementById('cmpList').innerHTML = a.campaigns.length ? `<h3>Messages</h3><table><tr><th>When</th><th>Message</th><th>Status</th><th>Sent</th><th></th></tr>${a.campaigns.map((c) => `<tr><td>${new Date(c.scheduled_at).toLocaleString('en-IN')}</td><td><strong>${esc(c.title)}</strong><br><small>${esc(c.body)}</small></td><td>${esc(c.status)}</td><td>${c.sent}${c.failed ? ` (${c.failed} failed)` : ''}${c.gone ? ` · ${c.gone} removed` : ''}</td><td>${c.status === 'scheduled' ? `<button class="ghost small" data-cancel="${c.id}">Cancel</button>` : ''}</td></tr>`).join('')}</table>` : '';
+      document.querySelectorAll('[data-cancel]').forEach((b) => b.onclick = async () => { await fetch(`/api/admin/campaigns/${b.dataset.cancel}/cancel`, { method: 'POST', headers: H() }); loadAudience(); });
+      countAudience();
+    }
+    const segOf = (f) => ({ langs: f.langs.value, countries: f.countries.value.toUpperCase(), audience: f.audience.value });
+    async function countAudience() {
+      const f = document.getElementById('cmpF');
+      const r = await fetch('/api/admin/audience/count?' + new URLSearchParams(segOf(f)), { headers: H() });
+      if (r.ok) document.getElementById('cmpCount').textContent = `Audience: ${(await r.json()).n} phones`;
+    }
+    document.addEventListener('input', (e) => { if (e.target.closest('#cmpF') && ['langs', 'countries', 'audience'].includes(e.target.name)) countAudience(); });
+    // Email (Resend): status, festival-eve sends, campaigns with a test send first.
+    async function loadEmail() {
+      const r = await fetch('/api/admin/email', { headers: H() }); if (!r.ok) return;
+      const m = await r.json();
+      document.getElementById('mailCard').innerHTML = `<h2>Email</h2>
+        <p class="hint">${m.configured ? `Sending from <strong>${esc(m.from)}</strong> through Resend.` : '<strong>Not connected.</strong> Add RESEND_API_KEY in Railway Variables.'} ${m.audience} people can get email; ${m.pending} have not confirmed yet. Festival emails go out automatically at 9:00 India time the day before Navratri, Karwa Chauth, Dhanteras, Diwali, Chhath, Maha Shivaratri, Holika Dahan, Raksha Bandhan, Janmashtami and Ganesh Chaturthi.</p>
+        <form id="mailF" class="form">
+          <input name="subject" maxlength="120" placeholder="Subject" required>
+          <textarea name="body" rows="6" placeholder="Message. Leave an empty line between paragraphs." required style="font:inherit;padding:10px;border:1px solid var(--line);border-radius:10px"></textarea>
+          <input name="url" placeholder="Button opens (path, optional), e.g. /festivals/diwali">
+          <div class="two"><input name="langs" placeholder="Languages, e.g. hi,gu (empty = all)"><input name="countries" placeholder="Countries, e.g. IN,AE (empty = all)"></div>
+          <div class="two"><input name="test" type="email" placeholder="Your email for a test"><button type="button" class="ghost" id="mailTest">Send test</button></div>
+          <button class="primary" ${m.configured ? '' : 'disabled'}>Send to everyone in this segment</button>
+        </form>
+        ${m.campaigns.length ? `<h3>Sent</h3><table><tr><th>Subject</th><th>Status</th><th>Sent</th></tr>${m.campaigns.map((c) => `<tr><td>${esc(c.subject)}</td><td>${esc(c.status)}</td><td>${c.sent}${c.failed ? ` (${c.failed} failed)` : ''}</td></tr>`).join('')}</table>` : ''}
+        ${m.festivalSends.length ? `<h3>Festival emails</h3><table>${m.festivalSends.map((x) => `<tr><td>${esc(x.key)}</td><td>${x.ok} of ${x.n}</td></tr>`).join('')}</table>` : ''}`;
+      const f = document.getElementById('mailF');
+      const data = (extra) => JSON.stringify({ subject: f.subject.value, body: f.body.value, url: f.url.value, langs: f.langs.value, countries: f.countries.value, ...extra });
+      document.getElementById('mailTest').onclick = async () => {
+        if (!f.test.value) return alert('Enter your email for the test.');
+        const r2 = await fetch('/api/admin/email-campaigns', { method: 'POST', headers: H(), body: data({ test: f.test.value }) });
+        const d = await r2.json(); alert(d.ok ? 'Test sent. Check your inbox.' : (d.error || 'Test failed. Check the Resend dashboard.'));
+      };
+      f.onsubmit = async (e) => {
+        e.preventDefault();
+        if (!confirm(`Send "${f.subject.value}" now to everyone in this segment?`)) return;
+        const r2 = await fetch('/api/admin/email-campaigns', { method: 'POST', headers: H(), body: data({}) });
+        const d = await r2.json(); if (!r2.ok) return alert(d.error);
+        alert(`Sending to ${d.audience} people.`); f.reset(); setTimeout(loadEmail, 3000);
+      };
+    }
+    // Backups: nightly copies on the volume (and off-site if configured).
+    async function loadBackups() {
+      const r = await fetch('/api/admin/backups', { headers: H() }); if (!r.ok) return;
+      const b = await r.json();
+      document.getElementById('bkCard').innerHTML = `<h2>Backups</h2>
+        <p class="hint">A copy of the database is made every night and kept for 7 days plus 4 Sundays. ${b.offsite ? 'Each copy is also uploaded off-site.' : '<strong>Off-site copy is not set up:</strong> if the Railway volume is lost, these copies go with it. Set the BACKUP_S3_* variables (see LAUNCH.md), or download a copy here regularly.'}</p>
+        <table><tr><th>File</th><th>Size</th><th></th></tr>${b.backups.map((x) => `<tr><td>${esc(x.file)}</td><td>${(x.bytes / 1024).toFixed(0)} KB</td><td><button class="ghost small" data-dl="${esc(x.file)}">Download</button></td></tr>`).join('') || '<tr><td colspan=3>None yet</td></tr>'}</table>
+        <button class="ghost" id="bkNow">Back up now</button>`;
+      document.querySelectorAll('[data-dl]').forEach((x) => x.onclick = () => download('/api/admin/backups/' + x.dataset.dl, x.dataset.dl));
+      document.getElementById('bkNow').onclick = async () => { await fetch('/api/admin/backups', { method: 'POST', headers: H() }); loadBackups(); };
     }
     // Languages: coverage per language, start the translation job, export/import for review.
     async function loadLangs() {
@@ -88,6 +181,17 @@
     }
 
     document.addEventListener('submit', async (e) => {
+      if (e.target.id === 'cmpF') {
+        e.preventDefault();
+        const f = e.target;
+        const at = f.at.value ? new Date(f.at.value).toISOString() : null;
+        const n = document.getElementById('cmpCount').textContent;
+        if (!confirm(`${at ? 'Schedule' : 'Send now'}: "${f.title.value}" to ${n.replace('Audience: ', '')}?`)) return;
+        const r = await fetch('/api/admin/campaigns', { method: 'POST', headers: H(), body: JSON.stringify({ title: f.title.value, body: f.body.value, url: f.url.value, at, segment: segOf(f) }) });
+        const d = await r.json(); if (!r.ok) return alert(d.error);
+        f.reset(); loadAudience();
+        return;
+      }
       if (e.target.id !== 'findF') return;
       e.preventDefault();
       const tok = sessionStorage.getItem('rk_admin');

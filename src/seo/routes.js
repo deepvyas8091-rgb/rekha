@@ -64,6 +64,22 @@ const helpers = (lang) => {
   const signName = (i) => (lang === 'en' ? `${RASHI[i].sa} (${RASHI[i].en})` : dt(RASHI[i].sa));
   return { tt, dt, cityName, cta, faqHtml, cityLinks, signName };
 };
+// Email sign-up on public pages: a plain form that works without JavaScript. Consent is a
+// required tick box; the bot trap field stays empty for people. See src/subscribers.js.
+function subscribeBox(lang, back, city = '') {
+  const tt = tFor(lang);
+  return `<section class="card subscribe" id="subscribe"><h2>${esc(tt('Get festival dates and muhurat by email'))}</h2>
+    <p class="hint">${esc(tt('A short email before major festivals, with the times for your city. Free, and you can leave in one click.'))}</p>
+    <form method="post" action="/subscribe" class="form">
+      <input type="hidden" name="back" value="${esc(localePath(lang, back))}"><input type="hidden" name="lang" value="${lang}"><input type="hidden" name="city" value="${esc(city)}">
+      <input type="text" name="website" tabindex="-1" autocomplete="off" class="trap" aria-hidden="true">
+      <div class="two"><input type="email" name="email" required autocomplete="email" placeholder="${esc(tt('Your email'))}" aria-label="${esc(tt('Your email'))}"><button class="primary">${esc(tt('Subscribe'))}</button></div>
+      <label class="check"><input type="checkbox" name="consent" value="yes" required> <span>${esc(tt('I agree to get emails from Rekha. I can unsubscribe any time.'))}</span></label>
+    </form>
+    <p class="hint sub-ok" hidden>${esc(tt('Thank you. You are on the list.'))}</p><p class="hint sub-check" hidden>${esc(tt('Almost done: we sent you an email. Tap the link in it to confirm.'))}</p><p class="hint q-bad sub-bad" hidden>${esc(tt('That did not work. Check the email address and tick the box.'))}</p>
+    <script>(function(){var q=new URLSearchParams(location.search).get('subscribed');if(q===null)return;var b=document.getElementById('subscribe');b.querySelector(q==='1'?'.sub-ok':q==='check'?'.sub-check':'.sub-bad').hidden=false;if(q!=='0')b.querySelector('form').hidden=true;})();</script>
+  </section>`;
+}
 const faqLd = (faq) => (faq?.length ? [{ '@context': 'https://schema.org', '@type': 'FAQPage', mainEntity: faq.map(([q, a]) => ({ '@type': 'Question', name: q, acceptedAnswer: { '@type': 'Answer', text: a } })) }] : []);
 
 setFooterLinks((lang) => {
@@ -75,6 +91,23 @@ setFooterLinks((lang) => {
     festivals: festivalCalendar().slice(0, 12).map((f) => [dataT(lang, f.name), `/festivals/${f.slug}`]),
   };
 });
+
+/** The one-sentence answer for a festival in a city (pages, emails and push). */
+export const festAnswer = (lang, f, x, city) => {
+  const { tt, dt } = helpers(lang);
+  const fest = dt(f.name); const day = pretty(x.date, lang);
+  if (f.kind === 'lakshmi' && x.noOverlap) return tt('In {city} on {day}, Pradosh Kaal is {start} to {end}; the Vrishabha lagna does not fall within it this year.', { city, day, ...x.pradosh });
+  if (f.kind === 'lakshmi') return tt('{festival} puja muhurat in {city} on {day} is {start} to {end} ({minutes} minutes), when Pradosh Kaal and the fixed Vrishabha lagna overlap.', { festival: fest, city, day, ...x.muhurat });
+  if (f.kind === 'moonrise') return tt('On {festival} ({day}) the moon rises in {city} at {time}; sunset is at {sunset}.', { festival: fest, day, city, time: x.moonrise || '-', sunset: x.sunset });
+  if (f.kind === 'chhath') return tt('In {city}, the evening arghya (Sandhya Arghya) on {day} is at sunset, {sunset}, and the morning arghya (Usha Arghya) the next day is at sunrise, {sunrise}.', { city, day, sunset: x.sandhyaArghya, sunrise: x.ushaArghya });
+  if (f.kind === 'pradosh') {
+    return x.muhurat
+      ? tt('Holika Dahan muhurat in {city} on {day} is {start} to {end}, in Pradosh Kaal after Bhadra.', { city, day, ...x.muhurat })
+      : tt('On {day} in {city}, Bhadra lasts from {bs} to {be}, covering the whole Pradosh Kaal ({start} to {end}). Families then follow their local priest or calendar for the time.', { city, day, bs: x.bhadra.start, be: x.bhadra.end, ...x.pradosh });
+  }
+  if (f.kind === 'nishita') return tt('{festival} Nishita puja time in {city} is {start} to {end} on the night of {day}.', { festival: fest, city, day, ...x.muhurat });
+  return tt('{festival} falls on {day} in {city}.', { festival: fest, day, city });
+};
 
 export function seoRoutes(app) {
   // ---------- insights ----------
@@ -225,6 +258,7 @@ export function seoRoutes(app) {
             ${method(c, t)}
             ${cta(tt('Get your personal best times'), '/', tt('Pick an activity, use your exact location, and add your birth chart for a personal day rating.'))}
             ${crossLinks(c, offset ? '/choghadiya/tomorrow' : '/choghadiya')}
+            ${offset ? '' : subscribeBox(lang, `/choghadiya/${c.slug}`, c.name)}
             ${faqHtml(faq)}
             <section class="block"><h2>${esc(tt('Learn more'))}</h2><p><a href="/insights/what-is-choghadiya">${esc(tt('What is Choghadiya and how to read it'))}</a> · <a href="/insights/hora-planetary-hours">${esc(tt('Hora explained'))}</a> · <a href="/insights/how-to-choose-an-auspicious-time">${esc(tt('How to choose a good time'))}</a></p></section>
             <section class="block"><h2>${esc(tt('Choghadiya in other cities'))}</h2>${cityLinks('choghadiya', c.slug)}</section>`,
@@ -319,6 +353,7 @@ export function seoRoutes(app) {
             ${method(c, t)}
             ${cta(tt("See this month's good days"), '/?tab=panchang', tt('A calendar of good days for business, travel, marriage, property and more.'))}
             ${crossLinks(c, offset ? '/panchang/tomorrow' : '/panchang')}
+            ${offset ? '' : subscribeBox(lang, `/panchang/${c.slug}`, c.name)}
             ${faqHtml(faq)}
             <section class="block"><h2>${esc(tt('Panchang in other cities'))}</h2>${cityLinks('panchang', c.slug)}</section>`,
         });
@@ -434,21 +469,6 @@ export function seoRoutes(app) {
   // festivals people search with a city name (muhurat, moonrise, arghya) get a page per city.
   const yearOf = (d) => d.slice(0, 4);
   const HUB_CITIES = CITY.slice(0, 40);
-  const festAnswer = (lang, f, x, city) => {
-    const { tt, dt } = helpers(lang);
-    const fest = dt(f.name); const day = pretty(x.date, lang);
-    if (f.kind === 'lakshmi' && x.noOverlap) return tt('In {city} on {day}, Pradosh Kaal is {start} to {end}; the Vrishabha lagna does not fall within it this year.', { city, day, ...x.pradosh });
-    if (f.kind === 'lakshmi') return tt('{festival} puja muhurat in {city} on {day} is {start} to {end} ({minutes} minutes), when Pradosh Kaal and the fixed Vrishabha lagna overlap.', { festival: fest, city, day, ...x.muhurat });
-    if (f.kind === 'moonrise') return tt('On {festival} ({day}) the moon rises in {city} at {time}; sunset is at {sunset}.', { festival: fest, day, city, time: x.moonrise || '-', sunset: x.sunset });
-    if (f.kind === 'chhath') return tt('In {city}, the evening arghya (Sandhya Arghya) on {day} is at sunset, {sunset}, and the morning arghya (Usha Arghya) the next day is at sunrise, {sunrise}.', { city, day, sunset: x.sandhyaArghya, sunrise: x.ushaArghya });
-    if (f.kind === 'pradosh') {
-      return x.muhurat
-        ? tt('Holika Dahan muhurat in {city} on {day} is {start} to {end}, in Pradosh Kaal after Bhadra.', { city, day, ...x.muhurat })
-        : tt('On {day} in {city}, Bhadra lasts from {bs} to {be}, covering the whole Pradosh Kaal ({start} to {end}). Families then follow their local priest or calendar for the time.', { city, day, bs: x.bhadra.start, be: x.bhadra.end, ...x.pradosh });
-    }
-    if (f.kind === 'nishita') return tt('{festival} Nishita puja time in {city} is {start} to {end} on the night of {day}.', { festival: fest, city, day, ...x.muhurat });
-    return tt('{festival} falls on {day} in {city}.', { festival: fest, day, city });
-  };
   const keyTime = (f, x) => (f.kind === 'moonrise' ? x.moonrise : f.kind === 'chhath' ? `${x.sandhyaArghya} / ${x.ushaArghya}` : x.muhurat ? `${x.muhurat.start}–${x.muhurat.end}` : x.pradosh ? `${x.pradosh.start}–${x.pradosh.end}` : '');
   const keyLabel = (tt, f) => (f.kind === 'moonrise' ? tt('Moonrise') : f.kind === 'chhath' ? tt('Sunset and sunrise arghya') : f.kind === 'nishita' ? tt('Nishita puja') : f.kind ? tt('Puja muhurat') : '');
 
@@ -468,7 +488,8 @@ export function seoRoutes(app) {
         body: `<div class="table-wrap card"><table><thead><tr><th>${esc(tt('Festival'))}</th><th>${esc(tt('Date'))}</th></tr></thead><tbody>
           ${list.map((f) => `<tr><td><a href="/festivals/${f.slug}"><strong>${esc(dt(f.name))}</strong></a></td><td>${esc(pretty(f.date, lang))}</td></tr>`).join('')}
           </tbody></table></div>
-          <p class="hint">${esc(tt('Festival rules differ between regions and traditions. Rekha follows the common North Indian Panchang; check with your local priest for family ceremonies.'))} <a href="/insights/how-rekha-works">${esc(tt('How Rekha calculates'))}</a></p>`,
+          <p class="hint">${esc(tt('Festival rules differ between regions and traditions. Rekha follows the common North Indian Panchang; check with your local priest for family ceremonies.'))} <a href="/insights/how-rekha-works">${esc(tt('How Rekha calculates'))}</a></p>
+          ${subscribeBox(lang, '/festivals')}`,
       });
     }), 3600);
   });
@@ -501,7 +522,8 @@ export function seoRoutes(app) {
           </tbody></table></div></section>
           ${f.city ? `<section class="block"><h2>${esc(tt('More cities'))}</h2><ul class="link-grid">${CITY.slice(40).map((c) => `<li><a href="/festivals/${f.slug}/${c.slug}">${esc(dt(c.name))}</a></li>`).join('')}</ul></section>` : ''}
           ${faqHtml(faq)}
-          <p class="hint">${esc(tt('Festival rules differ between regions and traditions. Rekha follows the common North Indian Panchang; check with your local priest for family ceremonies.'))} <a href="/festivals">${esc(tt('All festivals'))}</a></p>`,
+          <p class="hint">${esc(tt('Festival rules differ between regions and traditions. Rekha follows the common North Indian Panchang; check with your local priest for family ceremonies.'))} <a href="/festivals">${esc(tt('All festivals'))}</a></p>
+          ${subscribeBox(lang, `/festivals/${f.slug}`)}`,
       });
     }), 3600);
   });
@@ -553,6 +575,7 @@ export function seoRoutes(app) {
           <section class="card"><p>${esc(dt(FESTIVAL_INFO[f.slug] || ''))}</p></section>
           <p class="method hint">${esc(tt('Calculated for {city} ({lat}, {lon}, {tz}) from local sunrise {sunrise} and sunset {sunset}, with the Lahiri ayanamsa. Updated at {time} local time.', { city, lat: c.lat.toFixed(2), lon: c.lon.toFixed(2), tz: c.tz, sunrise: x.sunrise, sunset: x.sunset, time: nowIn(c.tz) }))} ${esc(tt('Festival rules differ between regions and traditions. Rekha follows the common North Indian Panchang; check with your local priest for family ceremonies.'))}</p>
           ${cta(tt('Choghadiya on the day'), `/choghadiya/${c.slug}`, tt('Good and bad times for {city}, from local sunrise.', { city }))}
+          ${subscribeBox(lang, `/festivals/${f.slug}/${c.slug}`, c.name)}
           ${faqHtml(faq)}
           <section class="block"><h2>${esc(tt('{festival} in other cities', { festival: fest }))}</h2><ul class="link-grid">${CITY.filter((o) => o.slug !== c.slug).slice(0, 60).map((o) => `<li><a href="/festivals/${f.slug}/${o.slug}">${esc(dt(o.name))}</a></li>`).join('')}</ul>
           <p><a href="/festivals/${f.slug}">${esc(tt('{festival} {year}', { festival: fest, year }))}</a> · <a href="/festivals">${esc(tt('All festivals'))}</a></p></section>`,

@@ -23,3 +23,31 @@ export function searchPlaces(q, limit = 8) {
     .slice(0, limit).map(({ key, alt, pop, ...rest }) => rest);
 }
 export const PLACE_COUNT = INDEX.length;
+
+// ---- nearest city ------------------------------------------------------------------------
+const rad = (d) => (d * Math.PI) / 180;
+const km = (a, b) => {
+  const x = Math.sin(rad(b.lat - a.lat) / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(rad(b.lon - a.lon) / 2) ** 2;
+  return 12742 * Math.asin(Math.sqrt(x));
+};
+/** The nearest listed city to a point (within maxKm), for naming a GPS or network location. */
+export function nearestPlace(lat, lon, maxKm = 80) {
+  let best = null; let bestD = Infinity;
+  for (const c of INDEX) {
+    if (Math.abs(c.lat - lat) > 2 || Math.abs(c.lon - lon) > 3) continue;
+    const d = km({ lat, lon }, c);
+    if (d < bestD) { best = c; bestD = d; }
+  }
+  if (!best || bestD > maxKm) return null;
+  const { key, alt, pop, ...rest } = best;
+  return { ...rest, km: Math.round(bestD) };
+}
+/** The biggest city in a time zone (a rough guess when nothing better is known). */
+const TZ_ALIAS = { 'Asia/Calcutta': 'Asia/Kolkata', 'Asia/Saigon': 'Asia/Ho_Chi_Minh', 'Asia/Katmandu': 'Asia/Kathmandu', 'Asia/Rangoon': 'Asia/Yangon' };
+export function largestInTz(tz) {
+  tz = TZ_ALIAS[tz] || tz;
+  const c = INDEX.find((x) => x.tz === tz);
+  if (!c) return null;
+  const { key, alt, pop, ...rest } = c;
+  return rest;
+}

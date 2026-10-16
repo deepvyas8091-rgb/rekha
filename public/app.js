@@ -58,7 +58,14 @@ async function boot() {
   const readLang = local.get(`readLang.${lang}`);
   $('#lang').value = readLang && state.meta.languageNames[readLang] ? readLang : lang;
   document.cookie = `rk_lang=${lang}; Path=/; Max-Age=31536000; SameSite=Lax`;
-  if (!state.place) state.place = state.meta.cities.find((c) => c.name === 'Mumbai');
+  // First visit: the city the visitor's network or time zone points to (not saved until they confirm or
+  // change it), else Mumbai. A note on Today offers the exact location from the phone's GPS.
+  if (!state.place) {
+    let guess = null;
+    try { guess = await (early.geo || api(`/api/geo?${qs({ tz: Intl.DateTimeFormat().resolvedOptions().timeZone })}`)); } catch { /* offline */ }
+    state.place = guess?.lat != null && guess.tz ? { name: guess.name, lat: guess.lat, lon: guess.lon, tz: guess.tz } : state.meta.cities.find((c) => c.name === 'Mumbai');
+    state.placeGuess = guess?.source || 'default';
+  }
   $('#placeBtn').textContent = d(state.place.name);
   $('#panchDate').value = new Intl.DateTimeFormat('en-CA', { timeZone: state.place.tz }).format(new Date());
   bindUi();
@@ -148,10 +155,7 @@ function bindUi() {
   $('#signinDlg').addEventListener('close', () => { state.pendingPlan = null; });
   $('#placeBtn').addEventListener('click', () => $('#placeDlg').showModal());
   $('#placeDlg').addEventListener('close', () => { if ($('#placeDlg').returnValue === 'ok') setPlace(placeOf($('#placeSel').value)); });
-  $('#gpsBtn').addEventListener('click', () => navigator.geolocation?.getCurrentPosition((p) => {
-    setPlace({ name: t('My location'), lat: +p.coords.latitude.toFixed(4), lon: +p.coords.longitude.toFixed(4), tz: Intl.DateTimeFormat().resolvedOptions().timeZone });
-    $('#placeDlg').close();
-  }, () => alert(t('Location permission was not granted.'))));
+  $('#gpsBtn').addEventListener('click', () => { useGps(); $('#placeDlg').close(); });
   $('#planBtn').addEventListener('click', () => openPlans());
   $('#accountBtn').addEventListener('click', () => (state.me.user ? openAccount() : openSignin()));
   $('#profileSel').addEventListener('change', (e) => selectProfile(e.target.value));
@@ -203,7 +207,18 @@ function switchTab(name, push = true) {
   window.scrollTo(0, 0);
 }
 
+// Exact location from the phone, named after the nearest city (the time zone comes from the city when known).
+function useGps() {
+  if (!navigator.geolocation) { alert(t('Location permission was not granted.')); return; }
+  navigator.geolocation.getCurrentPosition(async (p) => {
+    const lat = +p.coords.latitude.toFixed(4), lon = +p.coords.longitude.toFixed(4);
+    let near = null;
+    try { near = await api(`/api/geo?${qs({ lat, lon })}`); } catch { /* offline: keep the coordinates */ }
+    setPlace({ name: near?.name || t('My location'), lat, lon, tz: near?.tz || Intl.DateTimeFormat().resolvedOptions().timeZone });
+  }, () => alert(t('Location permission was not granted.')), { enableHighAccuracy: false, timeout: 15000, maximumAge: 3600000 });
+}
 function setPlace(p) {
+  state.placeGuess = null;
   state.place = p; local.set('place', p); $('#placeBtn').textContent = p.name;
   syncAlerts();
   loadToday(); $('#panchang').innerHTML = ''; $('#calendar').innerHTML = '';
@@ -257,7 +272,9 @@ function bindAuth() {
     try {
       await post(path, body);
       const pending = state.pendingPlan;
+      const news = f.marketing?.checked;
       $('#signinDlg').close(); f.reset();
+      if (news) $('#signupNews').checked = true;
       if (!pending) toast(path.endsWith('signup') ? t('Welcome to Rekha!') : t('Welcome back!'));
       await afterSignin(pending);
     } catch (err) {
@@ -300,12 +317,18 @@ async function openSignin(why, mode) {
 }
 async function afterSignin(plan = null) {
   local.set('seenBefore', true);
+  // Consent ticked on the sign-up form (mobile or Google): stored with its time on the account.
+  if ($('#signupNews')?.checked && !$('#signupForm').hidden) {
+    await post('/api/me/marketing', { optIn: true, lang, tz: Intl.DateTimeFormat().resolvedOptions().timeZone }).catch(() => {});
+    $('#signupNews').checked = false;
+  }
   await refreshMe();
   // Move a chart made before signing in into the account.
   if (state.guestBirth && !profiles().length) {
     try { const p = await post('/api/profiles', { name: state.guestBirth.name || t('Me'), relation: 'self', birth: state.guestBirth }); state.profileId = p.id; await refreshMe(); } catch { /* plan limit */ }
   }
   loadToday();
+  window.dispatchEvent(new Event('rekha:signedin'));
   // Came from a plan: continue to payment without asking again.
   if (plan) {
     if (state.me.plan?.key === plan && (state.me.plan.interval || 'month') === (state.interval || 'month')) { toast(t('You are already on this plan.')); return; }
@@ -449,6 +472,7 @@ function openAccount() {
     ${state.meta.billing === 'stripe' && p.key !== 'free' ? `<button class="ghost" id="accPortal">${esc(t('Payment method and invoices'))}</button>` : ''}
     <button class="primary" id="accPlans">${esc(p.key === 'free' ? t('See premium plans') : t('Change plan'))}</button>
     ${p.key !== 'free' && p.status !== 'cancelling' && p.status !== 'cancelled' ? `<button class="ghost" id="accCancel">${esc(t('Cancel subscription'))}</button>` : ''}
+    <label class="check"><input type="checkbox" id="accNews"${m.user.marketing ? ' checked' : ''}> <span>${esc(t('Festival reminders and occasional updates'))}</span></label>
     <details class="explain"><summary>${esc(m.user.phone ? t('Change mobile number') : t('Add mobile number'))}</summary><div>
       <form id="accPhone" class="form"><span class="phone"><select name="countryCode" aria-label="${esc(t('Country code'))}">${countryOptions(homeCountry())}</select><input name="phone" type="tel" inputmode="numeric" placeholder="98765 43210" required></span><button class="ghost">${esc(t('Save number'))}</button></form></div></details>
     <details class="explain"><summary>${esc(m.user.hasPassword ? t('Change password') : t('Set a password (log in with your mobile number)'))}</summary><div>
@@ -467,6 +491,9 @@ function openAccount() {
     try { await post('/api/billing/cancel', {}); await refreshMe(); openAccount(); } catch (e) { alert(e.message); }
   });
   $('#accOut').addEventListener('click', async () => { await post('/api/auth/logout', {}); location.reload(); });
+  $('#accNews').addEventListener('change', async (e) => {
+    try { await post('/api/me/marketing', { optIn: e.target.checked, lang, tz: Intl.DateTimeFormat().resolvedOptions().timeZone }); $('#accMsg').textContent = e.target.checked ? t('You will get festival reminders and updates.') : t('Festival reminders and updates are off.'); } catch (err) { $('#accMsg').textContent = err.message; }
+  });
   $('#accPhone').addEventListener('submit', async (e) => {
     e.preventDefault();
     try { await post('/api/auth/phone', Object.fromEntries(new FormData(e.target))); await refreshMe(); openAccount(); $('#accMsg').textContent = t('Mobile number saved.'); } catch (err) { $('#accMsg').textContent = err.message; }
@@ -549,12 +576,18 @@ function renderNow(tm, prof) {
     <details class="explain"><summary>${esc(t(TIMES.personal.title))}</summary><div>${esc(t(TIMES.personal.body))}</div></details>`;
   else if (tm.personalLocked) personal = `<button class="linkish" id="unlockDay">${esc(t('See your personal day rating and best times ›'))}</button>`;
   else personal = `<button class="linkish" id="addBirth">${esc(t('Add your birth details for a personal day rating ›'))}</button>`;
-  $('#nowCard').innerHTML = `
+  // First visit with a guessed city: say so, and offer the exact location or another city.
+  const guess = state.placeGuess ? `<div class="place-guess"><span>${esc(state.placeGuess === 'network' ? t('Showing times for {city}, based on your network. Not right?', { city: d(state.place.name) }) : t('Showing times for {city}. Set your city for your own times.', { city: d(state.place.name) }))}</span>
+    <span class="two"><button class="primary small" id="guessGps">${esc(t('Use my exact location'))}</button><button class="ghost small" id="guessPick">${esc(t('Choose city'))}</button><button class="linkish" id="guessOk">${esc(t('Yes, this is right'))}</button></span></div>` : '';
+  $('#nowCard').innerHTML = `${guess}
     <div class="sub">${esc(d(tm.weekday))} · ${esc(t('Sunrise'))} ${esc(tm.sunrise)} · ${esc(t('Sunset'))} ${esc(tm.sunset)} · ${esc(d(state.place.name))}</div>
     <div class="big">${slot ? `${esc(t('{name} choghadiya', { name: d(slot.name) }))} ${pill(slot.quality, slot.quality)}` : esc(t('Today'))}</div>
     ${slot ? `<div class="sub">${esc(slot.start)} – ${esc(slot.end)} · ${esc(d(slot.use))}${c.hora ? ` · ${esc(t('{planets} hora', { planets: d(c.hora) }))}` : ''}</div>` : ''}
     ${bad}${personal}
     ${tm.thaiColour ? `<div class="sub">${esc(t('Colour of the day'))}: ${esc(tm.thaiColour.wear.map(d).join(` ${t('or')} `))}</div>` : ''}`;
+  $('#guessGps')?.addEventListener('click', useGps);
+  $('#guessPick')?.addEventListener('click', () => $('#placeDlg').showModal());
+  $('#guessOk')?.addEventListener('click', () => setPlace(state.place));
   $('#unlockDay')?.addEventListener('click', () => openPlans(t('Your personal day rating, best times and daily guidance are part of Premium.')));
   $('#addBirth')?.addEventListener('click', () => switchTab('chart'));
 }
@@ -1166,7 +1199,7 @@ function alertsUi(on) {
   $('#alertsState').textContent = on ? t('On') : '';
   $('#alertsCard').classList.toggle('on', on);
 }
-const alertPrefs = () => ({ morning: $('#alertMorning').checked ? $('#alertTime').value || '07:00' : null, rahu: $('#alertRahu').checked });
+const alertPrefs = () => ({ morning: $('#alertMorning').checked ? $('#alertTime').value || '07:00' : null, rahu: $('#alertRahu').checked, news: $('#alertNews').checked });
 async function sendAlertPrefs(sub, confirmIt = false) {
   const prefs = alertPrefs();
   local.set('alerts', prefs);
@@ -1175,11 +1208,11 @@ async function sendAlertPrefs(sub, confirmIt = false) {
 async function syncAlerts() { const sub = await currentPush(); if (sub) sendAlertPrefs(sub).catch(() => {}); }
 function bindAlerts() {
   const saved = local.get('alerts');
-  if (saved) { $('#alertMorning').checked = !!saved.morning; if (saved.morning) $('#alertTime').value = saved.morning; $('#alertRahu').checked = saved.rahu !== false; }
+  if (saved) { $('#alertMorning').checked = !!saved.morning; if (saved.morning) $('#alertTime').value = saved.morning; $('#alertRahu').checked = saved.rahu !== false; $('#alertNews').checked = saved.news !== false; }
   currentPush().then((sub) => alertsUi(!!sub));
   $('#alertsOn').addEventListener('click', async () => {
     if (!pushSupported()) { alertsMsg(t(isIos() && !isStandalone() ? ALERTS_HELP.ios : ALERTS_HELP.unsupported)); return; }
-    if (!$('#alertMorning').checked && !$('#alertRahu').checked) { alertsMsg(t('Tick at least one alert.')); return; }
+    if (!$('#alertMorning').checked && !$('#alertRahu').checked && !$('#alertNews').checked) { alertsMsg(t('Tick at least one alert.')); return; }
     const btn = $('#alertsOn'); btn.disabled = true;
     try {
       const perm = await Notification.requestPermission();
@@ -1196,7 +1229,9 @@ function bindAlerts() {
     if (sub) { await post('/api/push/unsubscribe', { endpoint: sub.endpoint }).catch(() => {}); await sub.unsubscribe().catch(() => {}); }
     alertsUi(false); alertsMsg(t('Alerts are off.'));
   });
-  for (const id of ['#alertMorning', '#alertTime', '#alertRahu']) $(id).addEventListener('change', syncAlerts);
+  for (const id of ['#alertMorning', '#alertTime', '#alertRahu', '#alertNews']) $(id).addEventListener('change', syncAlerts);
+  // Signing in later links this phone's alerts to the account (for the owner's segments).
+  window.addEventListener('rekha:signedin', syncAlerts);
 }
 
 // ---------- choose what Today shows ----------

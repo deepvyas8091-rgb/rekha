@@ -68,6 +68,7 @@
         <p class="hint" data-i18n>Get today's timings on your phone without opening the app. Free, no account needed.</p>
         <label class="check"><input type="checkbox" id="alertMorning" checked> <span data-i18n>Morning summary at</span> <input type="time" id="alertTime" value="07:00" aria-label="Time of the morning summary" data-i18n-aria></label>
         <label class="check"><input type="checkbox" id="alertRahu" checked> <span data-i18n>10 minutes before Rahu Kaal</span></label>
+        <label class="check"><input type="checkbox" id="alertNews" checked> <span data-i18n>Festival mornings with your city's muhurat, and news from Rekha</span></label>
         <div class="two"><button type="button" class="primary" id="alertsOn" data-i18n>Turn on alerts</button><button type="button" class="ghost" id="alertsOff" hidden data-i18n>Turn off</button></div>
         <p class="hint" id="alertsMsg" hidden></p>
       </section>
@@ -255,6 +256,7 @@
           <span class="phone"><select name="countryCode" aria-label="Country code" data-i18n-aria></select><input name="phone" type="tel" inputmode="numeric" autocomplete="tel-national" placeholder="98765 43210" required></span></label>
         <label><span data-i18n>Password</span> <input name="password" type="password" autocomplete="new-password" required minlength="8" placeholder="At least 8 characters" data-i18n-ph></label>
         <details class="more"><summary data-i18n>Add email (optional)</summary><input name="email" type="email" autocomplete="email" aria-label="Email (optional)" data-i18n-aria></details>
+        <label class="check"><input type="checkbox" name="marketing" id="signupNews"> <span data-i18n>Send me festival reminders and occasional updates. I can stop them any time.</span></label>
         <button class="primary block" data-i18n>Create account</button>
         <p class="hint small" data-i18n-html>By continuing you agree to our <a href="/terms" target="_blank">Terms</a> and <a href="/privacy" target="_blank">Privacy policy</a>.</p>
       </form>

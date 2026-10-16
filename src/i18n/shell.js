@@ -81,7 +81,7 @@ export function renderShell(lang, base) {
     .replace('<!--EARLY-->', [
       ...['app.js', 'guide.js', 'i18n.js', 'countries.js'].map((f) => `<link rel="modulepreload" href="${asset(f)}">`),
       pack ? `<link rel="preload" href="/api/i18n/${lang}?v=${pack.version}" as="fetch" crossorigin>` : '',
-      `<script>window.__early={meta:fetch('/api/meta').then(function(r){return r.json()}),me:fetch('/api/me',{credentials:'same-origin'}).then(function(r){return r.json()})};window.__early.meta.catch(function(){});window.__early.me.catch(function(){});</script>`,
+      `<script>window.__early={meta:fetch('/api/meta').then(function(r){return r.json()}),me:fetch('/api/me',{credentials:'same-origin'}).then(function(r){return r.json()})};window.__early.meta.catch(function(){});window.__early.me.catch(function(){});try{if(!localStorage.getItem('rekha.place')){window.__early.geo=fetch('/api/geo?tz='+encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone)).then(function(r){return r.json()});window.__early.geo.catch(function(){});}}catch(e){}</script>`,
     ].filter(Boolean).join('\n  '))
     .replace('<script type="module" src="/app.js"></script>', `<script type="module" src="${asset('app.js')}"></script>`)
     .replace('<!--HEAD-->', [

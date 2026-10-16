@@ -208,6 +208,37 @@ The app already sends the right cache headers; these settings let Cloudflare use
 
 After this, run https://pagespeed.web.dev on rekha.io and on a city page to see the real numbers.
 
+## Step 8e: Subscribers, push messages and backups
+
+**Where people are kept** (all in the one database on the Railway volume):
+- Accounts: everyone who signed up. Only those who ticked "festival reminders and occasional updates" (or turned it on under Account) may get marketing; the time they agreed is stored.
+- Email list: visitors who left an email on a festival or city page (consent box required).
+- Phones with alerts: the daily-alerts subscribers. "Festival mornings and news" is on by default and can be turned off on the Today screen.
+
+**Owner dashboard (rekha.io/admin):**
+- *Audience*: counts, alerts by language and country, and two downloads: the **marketing list** (only people who agreed, with consent date and a personal unsubscribe link) and **all accounts** (for support, not for marketing).
+- *Send a push message*: title, message, link, and who gets it (languages, countries, signed-in or not, paying or free), now or at a set time. Phones that turned off news never get these. Keep it to one or two a month.
+- Festival mornings are automatic: on Diwali, Karwa Chauth, Chhath and the other festivals, alert subscribers get the day's muhurat for their own city at their morning time (07:30 if none was set).
+
+**Email:** Rekha collects the list but does not send email yet. When you are ready, open a Brevo or Resend account, import the marketing CSV, and send from there; every email must include the subscriber's unsubscribe link from the CSV. Tell me which one you pick and I can connect it so lists sync automatically.
+
+**Backups:** a copy of the database is written every night to `/data/backups` (7 days plus 4 Sundays), and you can download one from the dashboard at any time. Those copies live on the same Railway volume, so also set up an **off-site copy**:
+1. Cloudflare > R2 > Create bucket `rekha-backups` (R2 has a free tier).
+2. R2 > Manage API tokens > Create token with *Object Read & Write* on that bucket.
+3. In Railway Variables add: `BACKUP_S3_ENDPOINT` = `https://<account-id>.r2.cloudflarestorage.com`, `BACKUP_S3_BUCKET` = `rekha-backups`, `BACKUP_S3_KEY` = the access key ID, `BACKUP_S3_SECRET` = the secret access key.
+4. The next nightly backup logs "uploaded off-site". In R2, add a lifecycle rule to delete copies older than 90 days.
+
+## Step 8f: Email (Resend) and the visitor's city
+
+**Email.** In Railway Variables add `RESEND_API_KEY` (from Resend > API Keys; never paste it anywhere else) and, if you want another sender than hello@rekha.io, `EMAIL_FROM` (for example `Rekha <namaste@rekha.io>`). Optional: `EMAIL_REPLY_TO` with an inbox you read.
+In Resend > Domains, add rekha.io and copy the DNS records it shows (DKIM, SPF for the send subdomain, MX) into Cloudflare DNS as **DNS only** (grey cloud). Email will not send until Resend shows the domain as Verified. Also add a DMARC record if you do not have one: TXT `_dmarc` = `v=DMARC1; p=none; rua=mailto:<your inbox>`.
+What then happens by itself:
+- A confirmation email goes to every new email sign-up; nobody gets anything else until they click it.
+- At 9:00 India time the day before Navratri, Karwa Chauth, Dhanteras, Diwali, Chhath, Maha Shivaratri, Holika Dahan, Raksha Bandhan, Janmashtami and Ganesh Chaturthi, everyone on the list gets the times for their own city.
+- The dashboard's Email card sends your own emails to a language or country, with a test send first.
+
+**Visitor's city.** Cloudflare > Rules > Settings (Managed Transforms) > turn on **Add visitor location headers**. New visitors then see their own city (from their network) instead of Mumbai, with a one-tap "Use my exact location" for the precise spot. Without it, the app falls back to the biggest city in the visitor's time zone (Mumbai for all of India).
+
 ## Step 9: Before you tell anyone
 
 - [ ] A lawyer reviews `/privacy` and `/terms` (drafts are included, with [brackets] to fill in).
