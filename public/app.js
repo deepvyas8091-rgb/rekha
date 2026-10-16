@@ -45,7 +45,9 @@ const loc = () => ({ lat: state.place.lat, lon: state.place.lon, tz: state.place
 
 // ---------- boot ----------
 async function boot() {
-  [state.meta] = await Promise.all([api('/api/meta'), loadPack()]);
+  // The page starts /api/meta and /api/me before this script loads (see shell.js); reuse them.
+  const early = window.__early || {};
+  [state.meta] = await Promise.all([early.meta ? early.meta.catch(() => api('/api/meta')) : api('/api/meta'), loadPack()]);
   $('#demoBanner').hidden = !state.meta.demoMode;
   const cityOpts = state.meta.cities.map((c, i) => `<option value="${i}">${esc(d(c.name))}</option>`).join('');
   for (const sel of ['#placeSel', '[name=city]', '[name=bCity]', '[name=gCity]']) { $(sel).innerHTML = cityOpts; citySearch($(sel)); }
@@ -119,7 +121,9 @@ function readingHtml(r) {
 }
 
 async function refreshMe() {
-  state.me = await api('/api/me');
+  const early = window.__early?.me; if (window.__early) window.__early.me = null;
+  state.me = early ? await early.catch(() => api('/api/me')) : await api('/api/me');
+  if (!state.me || typeof state.me !== 'object') state.me = await api('/api/me');
   const signed = !!state.me.user;
   $('#accountBtn').textContent = signed ? (state.me.user.name || t('Account')) : t('Sign in');
   $('#planBtn').textContent = isPaid() ? t(state.me.plan.name) : t('Premium');

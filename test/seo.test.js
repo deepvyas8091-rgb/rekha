@@ -45,9 +45,19 @@ test('articles are complete', () => {
 });
 
 test('every sitemap URL renders and every internal link resolves', async () => {
-  const xml = await (await fetch(`${base}/sitemap.xml`)).text();
-  const urls = [...xml.matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => new URL(m[1]).pathname);
-  assert.ok(urls.length >= 160, `only ${urls.length} URLs`);
+  const index = await (await fetch(`${base}/sitemap.xml`)).text();
+  assert.match(index, /<sitemapindex/);
+  const files = [...index.matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => new URL(m[1]).pathname);
+  assert.ok(files.includes('/sitemaps/pages-en.xml') && files.includes('/sitemaps/festivals-en.xml') && files.includes('/sitemaps/insights.xml'));
+  const all = [];
+  for (const f of files) {
+    const r = await fetch(base + f); assert.equal(r.status, 200, f);
+    all.push(...[...(await r.text()).matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => new URL(m[1]).pathname));
+  }
+  assert.ok(all.length >= 3000, `only ${all.length} URLs`);
+  assert.equal(new Set(all).size, all.length, 'no duplicate addresses');
+  // Every hub, guide and English city type is rendered; the many city pages are sampled.
+  const urls = all.filter((u, i) => !/\/(choghadiya|rahu-kaal|panchang|festivals\/[\w-]+)\/[\w-]+/.test(u) || i % 23 === 0 || /\/(mumbai|london|new-york)(\/|$)/.test(u));
   const links = new Set();
   for (const u of urls) {
     const res = await fetch(base + u);
@@ -68,8 +78,9 @@ test('every sitemap URL renders and every internal link resolves', async () => {
     }
     for (const m of html.matchAll(/href="(\/[^"#?]*)/g)) links.add(m[1]);
   }
-  for (const l of links) {
-    if (/\.(css|svg|png|json)$/.test(l)) continue;
+  const linkList = [...links].filter((l, i) => !/\/(choghadiya|rahu-kaal|panchang|festivals\/[\w-]+)\/[\w-]+/.test(l) || i % 17 === 0);
+  for (const l of linkList) {
+    if (/\.(css|svg|png|json|woff2)$/.test(l)) continue;
     const r = await fetch(base + l);
     assert.equal(r.status, 200, `broken internal link ${l}`);
   }

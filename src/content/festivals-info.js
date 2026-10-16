@@ -1,0 +1,27 @@
+// One short, factual paragraph per festival for its page. Machine-translated with the other
+// engine names (catalog group "data"); keep each under 600 characters and free of braces.
+export const FESTIVAL_INFO = {
+  diwali: 'Diwali is the festival of lights. The main evening is Lakshmi Puja on Amavasya (new moon) in the month of Kartik (Ashwin in the amanta calendar). The puja is traditionally done in Pradosh Kaal, the time after sunset, and is considered best when a fixed (sthir) lagna such as Vrishabha is rising.',
+  dhanteras: 'Dhanteras opens the five days of Diwali. It falls on Krishna Trayodashi, two days before Lakshmi Puja. Many families buy gold, silver or new utensils, and worship Dhanvantari and Lakshmi in the evening, in Pradosh Kaal while Vrishabha lagna is rising.',
+  'karwa-chauth': 'Karwa Chauth is a fast kept mainly in North India on Krishna Chaturthi of Kartik (purnimanta). The fast runs from sunrise until the moon is sighted at night, so the moonrise time in your own city is what matters most.',
+  'chhath-puja': 'Chhath Puja honours the Sun and Chhathi Maiya, mainly in Bihar, Jharkhand and eastern Uttar Pradesh and among their communities abroad. The main offerings are the evening arghya to the setting sun on Shashthi and the morning arghya to the rising sun the next day.',
+  'holika-dahan': 'Holika Dahan, the bonfire on the evening before Holi, falls on Phalguna Purnima. It is traditionally lit in Pradosh Kaal after sunset, avoiding Bhadra (Vishti karana). When Bhadra covers the whole evening, local customs differ on the time.',
+  janmashtami: 'Janmashtami celebrates the birth of Krishna on Krishna Ashtami of Bhadrapada (purnimanta). The main puja is at Nishita Kaal, around midnight, the time Krishna is said to have been born. Smarta and Vaishnava traditions sometimes keep it on different days.',
+  'maha-shivaratri': 'Maha Shivaratri, the great night of Shiva, falls on Krishna Chaturdashi of Phalguna (purnimanta). Devotees fast and keep vigil through the night; the most important worship is at Nishita Kaal, around midnight.',
+  'narak-chaturdashi': 'Narak Chaturdashi, also called Choti Diwali or Roop Chaudas, falls on Krishna Chaturdashi, the day before or the same day as Lakshmi Puja. An early-morning oil bath (abhyang snan) before sunrise is the main custom.',
+  'govardhan-puja': 'Govardhan Puja falls on the day after Diwali, Kartik Shukla Pratipada. Krishna devotees offer Annakut, a mountain of food. In Gujarat the same day is Bestu Varas, the Gujarati New Year.',
+  'bhai-dooj': 'Bhai Dooj falls on Kartik Shukla Dwitiya, two days after Diwali. Sisters pray for their brothers and apply tilak, and brothers give gifts. It is also called Bhau Beej and Bhai Phonta.',
+  'kartik-purnima': 'Kartik Purnima is the full moon of Kartik. It is the day of Dev Diwali in Varanasi, when the ghats are lit with lamps, and a day for holy baths and lamp offerings.',
+  navratri: 'Sharad Navratri is nine nights of worship of the Goddess in the month of Ashwin, ending with Dussehra on the tenth day. The first day starts with Ghatasthapana in the morning.',
+  dussehra: 'Dussehra, or Vijayadashami, falls on Ashwin Shukla Dashami, the day after the nine nights of Navratri. It marks the victory of good over evil and is considered good for new beginnings.',
+  'sharad-purnima': 'Sharad Purnima is the full moon of Ashwin, also called Kojagari Purnima. Many families keep kheer in the moonlight overnight and worship Lakshmi.',
+  'ganesh-chaturthi': 'Ganesh Chaturthi falls on Bhadrapada Shukla Chaturthi and begins the festival of Ganesha, which lasts up to ten days. The Ganesha murti is traditionally installed around midday.',
+  'raksha-bandhan': 'Raksha Bandhan falls on Shravana Purnima. Sisters tie a rakhi on their brothers\' wrists. The rakhi is traditionally tied outside Bhadra.',
+  'nag-panchami': 'Nag Panchami falls on Shravana Shukla Panchami and is a day of worship of the serpent deities, with milk offerings at temples and anthills.',
+  'guru-purnima': 'Guru Purnima is the full moon of Ashadha, a day to honour teachers. It is also celebrated as the birthday of Veda Vyasa.',
+  'akshaya-tritiya': 'Akshaya Tritiya falls on Vaishakha Shukla Tritiya. It is considered so auspicious that no muhurat is needed, and buying gold or starting something new is popular.',
+  'ram-navami': 'Ram Navami celebrates the birth of Rama on Chaitra Shukla Navami, the ninth day of Chaitra Navratri. The main puja is at madhyahna, around midday.',
+  'hanuman-jayanti': 'Hanuman Jayanti is celebrated on Chaitra Purnima in most of North India. Some regions, including parts of South India, celebrate it at other times of the year.',
+  'vasant-panchami': 'Vasant Panchami falls on Magha Shukla Panchami. It marks the coming of spring and is the day of Saraswati Puja, when children often begin learning to write.',
+  'gudi-padwa-ugadi': 'Gudi Padwa in Maharashtra and Ugadi in Karnataka, Andhra Pradesh and Telangana mark the Hindu new year on Chaitra Shukla Pratipada, the first day of Chaitra Navratri.',
+};

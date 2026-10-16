@@ -26,6 +26,9 @@ import { seoRoutes, ARTICLES, clearPageCache } from './seo/routes.js';
 import { t as tr, isLang, LANG_CODES, localePath, languageNames, packFor, readyLangs, coverage, invalidate } from './i18n/index.js';
 import { renderShell } from './i18n/shell.js';
 import { pushRoutes, pushTick } from './push.js';
+import { assetRoutes } from './assets.js';
+import { submitIndexNow } from './seo/indexnow.js';
+import { festivalCalendar } from './engine/festivals.js';
 import { runTranslations, status as translateStatus, exportLang, importLang } from './i18n/jobs.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -58,6 +61,7 @@ app.use((req, res, next) => {
   if (!req.url.startsWith('/')) req.url = `/${req.url}`;
   next();
 });
+assetRoutes(app); // hashed JS/CSS, self-hosted fonts and the service worker
 billingRoutes(app); // raw-body webhook must come before express.json()
 app.use(express.json({ limit: '2mb' }));
 app.use(sessionMiddleware);
@@ -139,7 +143,7 @@ function natalOf(birth) {
 pushRoutes(app, limit);
 
 // ---- session + catalogue --------------------------------------------------
-app.get('/api/meta', wrap(async (_req, res) => res.json({
+app.get('/api/meta', wrap(async (_req, res) => res.set('Cache-Control', 'public, max-age=300, s-maxage=300').json({
   demoMode, languages: LANGUAGES, languageNames: languageNames(), readyLangs: readyLangs(), activities: ACTIVITIES, cities: CITIES,
   plans: publicPlans(),
   googleClientId: process.env.GOOGLE_CLIENT_ID || null, devLogin: devLoginEnabled,
@@ -191,7 +195,8 @@ app.get('/api/pricing', (req, res) => {
 app.get('/api/i18n/:lang', (req, res) => {
   if (!isLang(req.params.lang)) return res.status(404).json({ error: 'Unknown language' });
   const pack = packFor(req.params.lang);
-  res.set('Cache-Control', req.query.v === pack.version ? 'public, max-age=86400' : 'public, max-age=300');
+  // The version is in the address, so a matching request can be kept for a year.
+  res.set('Cache-Control', req.query.v === pack.version ? 'public, max-age=31536000, immutable' : 'public, max-age=300');
   res.json(pack);
 });
 
@@ -231,6 +236,7 @@ app.get('/api/panchang', wrap(async (req, res) => {
   const p = place(req.query);
   const out = panchang(req.query.date || today(p.tz), p.lat, p.lon, p.tz);
   delete out._raw; delete out._karanaRaw;
+  res.set('Cache-Control', req.query.date ? 'public, max-age=86400, s-maxage=86400' : 'public, max-age=300, s-maxage=600');
   res.json(out);
 }));
 
@@ -247,6 +253,8 @@ app.get('/api/timings', wrap(async (req, res) => {
     date = d.toISOString().slice(0, 10);
     out = goodBadTimes(date, p.lat, p.lon, p.tz, opts);
   }
+  // The same for everyone in a city: browsers and the CDN may keep it briefly (personal results stay private).
+  res.set('Cache-Control', req.query.profile ? 'private, no-store' : 'public, max-age=120, s-maxage=300');
   res.json({ ...out, personalLocked: locked, thaiColour: thaiColourOfDay(new Date(), p.tz) });
 }));
 
@@ -255,6 +263,7 @@ app.get('/api/calendar', wrap(async (req, res) => {
   const { opts, locked } = personalOpts(req);
   const birth = opts.birthNakshatra != null ? { nakshatraIndex: opts.birthNakshatra, moonSign: opts.birthMoonSign } : null;
   const month = req.query.month || today(p.tz).slice(0, 7);
+  res.set('Cache-Control', req.query.profile ? 'private, no-store' : 'public, max-age=3600, s-maxage=86400');
   res.json({ ...monthCalendar(month, p.lat, p.lon, p.tz, req.query.activity || 'general', birth), personalLocked: locked });
 }));
 
@@ -306,7 +315,9 @@ app.get('/api/horoscope', wrap(async (req, res) => {
   const sign = Number(req.query.sign);
   if (!Number.isInteger(sign) || sign < 0 || sign > 11) throw httpError(400, 'sign must be 0 to 11');
   const lang = LANGUAGES[req.query.lang] ? req.query.lang : 'en';
-  res.json(await horoscopeFor(sign, lang));
+  const h = await horoscopeFor(sign, lang);
+  res.set('Cache-Control', h.ai ? 'public, max-age=900, s-maxage=1800' : 'public, max-age=60');
+  res.json(h);
 }));
 
 // ---- birth chart and matching -----------------------------------------------
@@ -528,7 +539,9 @@ app.get(['/', '/index.html'], (req, res) => {
   const pref = /(?:^|;\s*)rk_lang=([a-z]{2})/.exec(req.get('cookie') || '')?.[1];
   if (req.lang === 'en' && pref && pref !== 'en' && isLang(pref) && req.originalUrl === '/') return res.redirect(302, localePath(pref, '/'));
   const base = (process.env.PUBLIC_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
-  res.set('Cache-Control', 'no-cache');
+  // The root address may redirect by the language cookie, so only the language-prefixed shells are shared caches.
+  if (req.lang === 'en') res.set({ 'Cache-Control': 'private, no-cache', Vary: 'Cookie' });
+  else res.set('Cache-Control', 'public, max-age=300, s-maxage=3600, stale-while-revalidate=86400');
   res.type('html').send(renderShell(req.lang, base));
 });
 
@@ -549,7 +562,11 @@ app.get(['/privacy', '/terms'], (req, res, next) => {
 
 app.locals.horoscopeFor = horoscopeFor;
 seoRoutes(app);
-app.use(express.static(path.join(__dirname, '..', 'public'), { extensions: ['html'], index: false }));
+app.use(express.static(path.join(__dirname, '..', 'public'), {
+  extensions: ['html'], index: false,
+  // Icons and images change rarely; the hashed /assets/ files carry the one-year cache.
+  setHeaders: (res, file) => { if (/\.(png|svg|ico|webp|json)$/.test(file)) res.setHeader('Cache-Control', 'public, max-age=604800'); },
+}));
 
 // Friendly 404 for pages; JSON for the API.
 app.use((req, res, next) => {
@@ -573,6 +590,8 @@ const port = process.env.PORT || 3000;
 if (!isTest) {
   const server = app.listen(port, '0.0.0.0', () => {
     console.log(`Rekha running on port ${port}`);
+    // Longer than the proxy's idle timeout, so a reused connection is never closed mid-request.
+    server.keepAliveTimeout = 65000; server.headersTimeout = 66000;
     console.log(`Database: ${store.dbLocation}`);
     const pay = billingConfigured() === 'stripe'
       ? ['STRIPE_SECRET_KEY', 'STRIPE_WEBHOOK_SECRET']
@@ -580,6 +599,18 @@ if (!isTest) {
     const missing = ['ANTHROPIC_API_KEY', 'GOOGLE_CLIENT_ID', ...pay, 'ADMIN_TOKEN'].filter((k) => !process.env[k]);
     console.log(`Payments: ${billingConfigured() || 'off (no Stripe or Razorpay keys yet)'}`);
     if (missing.length) console.log(`Not set yet (features stay off until added): ${missing.join(', ')}`);
+    // Work out the festival dates once now, so the first visitor does not wait for it.
+    const warm = () => { try { festivalCalendar(); } catch (e) { console.warn('festivals', e.message); } };
+    setTimeout(warm, 2000).unref();
+    setInterval(warm, 3600000).unref(); // the new day's festival scan runs on this timer, not during a visit
+    // IndexNow: tell Bing and others about the day's pages, 5 minutes after start and then daily.
+    if (process.env.PUBLIC_URL && process.env.INDEXNOW !== '0') {
+      const base = process.env.PUBLIC_URL.replace(/\/$/, '');
+      const ping = () => submitIndexNow(base, app.locals.allUrls(base))
+        .then((st) => console.log(`IndexNow: submitted, status ${st.join(',')}`)).catch((e) => console.warn(`IndexNow: ${e.message}`));
+      setTimeout(ping, 5 * 60000).unref();
+      setInterval(ping, 24 * 3600000).unref();
+    }
     // Daily timing alerts: check every minute what is due.
     setInterval(() => pushTick().catch((e) => console.error('push', e.message)), 60000).unref();
     // Translate whatever is missing, a minute after start (only new strings after the first run).

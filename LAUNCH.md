@@ -194,6 +194,20 @@ The site and app work in 15 languages: English, Hindi, Gujarati, Marathi, Bengal
 - **Yearly plans** (10 months' price, so two months free) are created in Stripe automatically on the first yearly checkout, with lookup keys like `rekha_solo_C_year_v1`. In the Stripe customer portal settings, allow switching between the monthly and yearly prices if you want customers to switch there too. With Razorpay, only monthly plans are offered.
 - **Trust page**: rekha.io/trust goes to "How Rekha works". If you ever add human astrologers, a shop or ads, change that page in the same release; it promises none of these.
 
+## Step 8d: Speed and search settings (once, in Cloudflare and Railway)
+
+The app already sends the right cache headers; these settings let Cloudflare use them.
+
+1. **Cloudflare > DNS:** set the `rekha.io` record to **Proxied** (orange cloud). **SSL/TLS > Overview:** Full (strict).
+2. **Cloudflare > Caching > Cache Rules > Create rule** "Cache Rekha pages": when *URI Path* does not start with `/api/` and *URI Path* is not `/`, then **Eligible for cache**, Edge TTL **Use cache-control header if present**, Browser TTL **Respect origin**. (The home page `/` is left out on purpose: it sends returning visitors to their language.)
+3. **Cloudflare > Speed > Optimization:** turn on Brotli, Early Hints and HTTP/3. Leave Rocket Loader **off**.
+4. **Cloudflare > Security > Bots:** turn **off** "Block AI bots" and AI Labyrinth, and turn off the managed robots.txt. Rekha's own robots.txt already welcomes search and AI crawlers.
+5. **Railway > Settings > Region:** Southeast Asia (Singapore) is closest to India and Southeast Asia.
+6. **Bing Webmaster Tools** (bing.com/webmasters): add rekha.io (it can import from Google Search Console) and submit `https://rekha.io/sitemap.xml`. Do the same in Google Search Console. IndexNow is already on: the app pings Bing 5 minutes after each start and then daily (set `INDEXNOW=0` to stop it).
+7. Optional: `SOCIAL_LINKS` in Railway Variables, a comma-separated list of Rekha's public profile URLs. They are added to the site's Organization details for search engines.
+
+After this, run https://pagespeed.web.dev on rekha.io and on a city page to see the real numbers.
+
 ## Step 9: Before you tell anyone
 
 - [ ] A lawyer reviews `/privacy` and `/terms` (drafts are included, with [brackets] to fill in).

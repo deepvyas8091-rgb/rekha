@@ -19,6 +19,12 @@ let server, base;
 before(() => new Promise((r) => { server = app.listen(0, () => { base = `http://localhost:${server.address().port}`; r(); }); }));
 after(() => { reader._setClient(null); server.close(); });
 const get = (p, opts) => fetch(base + p, { redirect: 'manual', ...opts });
+/** The sitemap index and every file it lists, as one string. */
+async function fullSitemap() {
+  const index = await (await get('/sitemap.xml')).text();
+  const parts = await Promise.all([...index.matchAll(/<loc>([^<]+)<\/loc>/g)].map(async (m) => (await get(new URL(m[1]).pathname)).text()));
+  return index + parts.join('\n');
+}
 const admin = { 'x-admin-token': 'admin-test-token', 'content-type': 'application/json' };
 
 test('hand-written Hindi and Gujarati cover the whole interface and page text', () => {
@@ -41,7 +47,8 @@ test('language pages: html lang, translated text, hreflang, prefixed links', asy
   assert.match(html, /hreflang="hi" href="[^"]+\/hi\/choghadiya\/vadodara"/);
   assert.match(html, /hreflang="x-default" href="[^"]+\/choghadiya\/vadodara"/);
   assert.match(html, /href="\/gu\/rahu-kaal\/vadodara"/);
-  assert.match(html, /Noto\+Sans\+Gujarati/);
+  assert.match(html, /\/fonts\/noto-sans-gujarati\/noto-sans-gujarati-gujarati-400-normal\.woff2/);
+  assert.doesNotMatch(html, /fonts\.googleapis\.com/, 'fonts are served from rekha.io');
   assert.doesNotMatch(html, /name="robots" content="noindex/);
   const shell = await (await get('/hi/')).text();
   assert.match(shell, /<title>Rekha: चौघड़िया/);
@@ -56,7 +63,7 @@ test('a language that is not translated yet is served but not indexed', async ()
   assert.match(html, /<html lang="ta"/);
   assert.match(html, /name="robots" content="noindex, follow"/);
   assert.match(html, /rel="canonical" href="[^"]+\/panchang\/chennai"/);
-  const sitemap = await (await get('/sitemap.xml')).text();
+  const sitemap = await fullSitemap();
   assert.match(sitemap, /\/gu\/panchang\/vadodara/);
   assert.doesNotMatch(sitemap, /\/ta\//);
   // Articles are only listed in a language once translated.
@@ -116,7 +123,7 @@ test('translation job: fake model, only missing strings, placeholders checked, a
   // Tamil is now live: indexed, in the sitemap, with its two translated articles.
   i18n.invalidate();
   assert.ok(i18n.readyLangs().includes('ta'));
-  const sitemap = await (await get('/sitemap.xml')).text();
+  const sitemap = await fullSitemap();
   assert.match(sitemap, new RegExp(`/ta/insights/${ARTICLES[0].slug}`));
   assert.doesNotMatch(sitemap, new RegExp(`/ta/insights/${ARTICLES[5].slug}<`));
   const art = await (await get(`/ta/insights/${ARTICLES[0].slug}`)).text();

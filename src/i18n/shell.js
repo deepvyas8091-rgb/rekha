@@ -3,7 +3,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { t, LANGS, LANG_CODES, localePath, fontHref, readyLangs, packFor } from './index.js';
+import { t, LANGS, LANG_CODES, localePath, readyLangs, packFor } from './index.js';
+import { asset, assetVersion, fontTags } from '../assets.js';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const decode = (s) => s.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'");
@@ -47,7 +48,7 @@ const shellCache = new Map();
 
 export function renderShell(lang, base) {
   const pack = lang === 'en' ? null : packFor(lang);
-  const key = `${lang}:${base}:${pack?.version || ''}:${readyLangs().join(',')}`;
+  const key = `${lang}:${base}:${pack?.version || ''}:${readyLangs().join(',')}:${assetVersion()}`;
   const hit = shellCache.get(key);
   if (hit) return hit;
   if (!template || process.env.NODE_ENV !== 'production') template = fs.readFileSync(shellPath, 'utf8');
@@ -74,7 +75,15 @@ export function renderShell(lang, base) {
     .replace(/<meta name="description" content="[^"]*">/, `<meta name="description" content="${esc(desc)}">`)
     .replace(/<meta property="og:title" content="[^"]*">/, `<meta property="og:title" content="${esc(title)}">`)
     .replace(/<meta property="og:description" content="[^"]*">/, `<meta property="og:description" content="${esc(desc)}">`)
-    .replace(/(<link rel="stylesheet" href=")[^"]*(" id="fontCss">)/, `$1${fontHref(lang)}$2`)
+    .replace('<!--FONTS-->', fontTags(lang))
+    .replace('<link rel="stylesheet" href="/styles.css">', `<link rel="stylesheet" href="${asset('styles.css')}">`)
+    // Start the first data requests and every script download at once, before app.js runs.
+    .replace('<!--EARLY-->', [
+      ...['app.js', 'guide.js', 'i18n.js', 'countries.js'].map((f) => `<link rel="modulepreload" href="${asset(f)}">`),
+      pack ? `<link rel="preload" href="/api/i18n/${lang}?v=${pack.version}" as="fetch" crossorigin>` : '',
+      `<script>window.__early={meta:fetch('/api/meta').then(function(r){return r.json()}),me:fetch('/api/me',{credentials:'same-origin'}).then(function(r){return r.json()})};window.__early.meta.catch(function(){});window.__early.me.catch(function(){});</script>`,
+    ].filter(Boolean).join('\n  '))
+    .replace('<script type="module" src="/app.js"></script>', `<script type="module" src="${asset('app.js')}"></script>`)
     .replace('<!--HEAD-->', [
       canonical ? `<link rel="canonical" href="${esc(canonical)}">` : '',
       indexable ? hreflangTags(base, '/', ready) : '<meta name="robots" content="noindex, follow">',
