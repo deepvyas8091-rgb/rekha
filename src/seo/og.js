@@ -3,6 +3,10 @@
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { Resvg } from '@resvg/resvg-js';
+import fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
+
+const LOGO = `data:image/png;base64,${fs.readFileSync(fileURLToPath(new URL('../../public/icons/logo-96.png', import.meta.url))).toString('base64')}`;
 
 const require = createRequire(import.meta.url);
 const fontDir = path.dirname(require.resolve('@expo-google-fonts/inter/package.json'));
@@ -19,8 +23,7 @@ export async function shareImage({ title, big, sub, date }) {
   <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#2b1840"/><stop offset="1" stop-color="#6b2d3c"/></linearGradient></defs>
   <rect width="1200" height="630" fill="url(#g)"/>
   <circle cx="1090" cy="110" r="190" fill="#f08a3e" opacity="0.12"/>
-  <circle cx="110" cy="96" r="34" fill="#f08a3e"/>
-  <text x="110" y="108" font-family="Inter" font-size="30" font-weight="700" fill="#2b1840" text-anchor="middle">R</text>
+  <image x="76" y="62" width="68" height="68" href="${LOGO}"/>
   <text x="166" y="108" font-family="Inter" font-size="34" font-weight="700" fill="#ffffff">Rekha</text>
   <text x="80" y="250" font-family="Inter" font-size="56" font-weight="700" fill="#ffffff">${esc(fit(title, 34))}</text>
   <text x="80" y="370" font-family="Inter" font-size="84" font-weight="700" fill="#f0b27a">${esc(fit(big, 24))}</text>

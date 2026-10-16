@@ -41,7 +41,7 @@ self.addEventListener('push', (e) => {
   let d = {};
   try { d = e.data ? e.data.json() : {}; } catch { d = { title: 'Rekha', body: e.data?.text() || '' }; }
   e.waitUntil(self.registration.showNotification(d.title || 'Rekha', {
-    body: d.body || '', tag: d.tag, renotify: !!d.tag, icon: '/icons/icon-192.png', badge: '/icons/icon-192.png', data: { url: d.url || '/' },
+    body: d.body || '', tag: d.tag, renotify: !!d.tag, icon: '/icons/icon-192.png', badge: '/icons/badge-96.png', data: { url: d.url || '/' },
   }));
 });
 self.addEventListener('notificationclick', (e) => {

@@ -191,3 +191,10 @@ export function pushRoutes(app, limit) {
   });
   app.post('/api/push/unsubscribe', (req, res) => { removeSubscription(req.body?.endpoint); res.json({ ok: true }); });
 }
+
+/** Send a message to every phone linked to an account (for example "your match result is ready"). */
+export async function pushToUser(userId, msg, sender) {
+  const subs = db.prepare('SELECT * FROM push_subs WHERE user_id = ?').all(userId);
+  for (const sub of subs) await deliver(sub, { tag: 'rekha-user', ...msg }, sender);
+  return subs.length;
+}

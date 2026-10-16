@@ -5,6 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { t, LANGS, LANG_CODES, localePath, readyLangs, packFor } from './index.js';
 import { asset, assetVersion, fontTags } from '../assets.js';
+import { analyticsHead, consentBar } from '../analytics.js';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const decode = (s) => s.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'");
@@ -84,6 +85,9 @@ export function renderShell(lang, base) {
       `<script>window.__early={meta:fetch('/api/meta').then(function(r){return r.json()}),me:fetch('/api/me',{credentials:'same-origin'}).then(function(r){return r.json()})};window.__early.meta.catch(function(){});window.__early.me.catch(function(){});try{if(!localStorage.getItem('rekha.place')){window.__early.geo=fetch('/api/geo?tz='+encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone)).then(function(r){return r.json()});window.__early.geo.catch(function(){});}}catch(e){}</script>`,
     ].filter(Boolean).join('\n  '))
     .replace('<script type="module" src="/app.js"></script>', `<script type="module" src="${asset('app.js')}"></script>`)
+    .replace('<!--FONTS-->', '')
+    .replace('</head>', `${analyticsHead()}\n</head>`)
+    .replace('</body>', `${consentBar(lang)}\n</body>`)
     .replace('<!--HEAD-->', [
       canonical ? `<link rel="canonical" href="${esc(canonical)}">` : '',
       indexable ? hreflangTags(base, '/', ready) : '<meta name="robots" content="noindex, follow">',

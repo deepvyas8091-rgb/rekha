@@ -87,7 +87,7 @@ export function catalog() {
   ]);
   const guideText = uniq(literalStrings(guide.slice(0, guide.indexOf('export const PALM_SVG'))).filter((s) => !notText(s) && /\s|^[A-Z]/.test(s)))
     .filter((s) => !app.includes(s));
-  const seoSrc = ['src/seo/routes.js', 'src/seo/layout.js', 'src/i18n/shell.js', 'src/server.js', 'src/push.js', 'src/subscribers.js', 'src/email.js'].map(read).join('\n');
+  const seoSrc = ['src/seo/routes.js', 'src/seo/layout.js', 'src/i18n/shell.js', 'src/server.js', 'src/push.js', 'src/subscribers.js', 'src/email.js', 'src/analytics.js', 'src/engagement.js', 'src/monthly.js'].map(read).join('\n');
   const seo = uniq(callStrings(seoSrc)).filter((s) => !app.includes(s));
   const inApp = new Set([...app, ...guideText, ...seo]);
   const data = uniq([

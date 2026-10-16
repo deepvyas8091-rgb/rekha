@@ -30,6 +30,10 @@ import { assetRoutes } from './assets.js';
 import { subscriberRoutes, campaignTick } from './subscribers.js';
 import { backupRoutes, nightlyBackup, listBackups } from './backup.js';
 import { emailRoutes, festivalEmailTick, emailCampaignTick } from './email.js';
+import { analyticsRoutes } from './analytics.js';
+import { engagementRoutes } from './engagement.js';
+import { monthlyTick } from './monthly.js';
+import { pushToUser } from './push.js';
 import { submitIndexNow } from './seo/indexnow.js';
 import { festivalCalendar } from './engine/festivals.js';
 import { runTranslations, status as translateStatus, exportLang, importLang } from './i18n/jobs.js';
@@ -148,6 +152,12 @@ pushRoutes(app, limit);
 subscriberRoutes(app, { isAdmin: (req) => isAdmin(req), limit, countryOf: app.locals.countryOf, baseOf: (req) => (process.env.PUBLIC_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '') });
 backupRoutes(app, (req) => isAdmin(req));
 emailRoutes(app, (req) => isAdmin(req));
+analyticsRoutes(app, { isAdmin: (req) => isAdmin(req), limit });
+
+engagementRoutes(app, {
+  requireUser, usableProfile: (u, id) => usableProfile(u, id), limit, narrate, LANGUAGES, pushToUser,
+  baseOf: (req) => (process.env.PUBLIC_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, ''),
+});
 
 // ---- session + catalogue --------------------------------------------------
 app.get('/api/meta', wrap(async (_req, res) => res.set('Cache-Control', 'public, max-age=300, s-maxage=300').json({
@@ -163,7 +173,7 @@ app.get('/api/me', (req, res) => {
   const plan = planOf(u);
   const used = store.usageFor(u.id, monthKey());
   res.json({
-    user: { id: u.id, name: u.name, email: u.email, phone: u.phone, hasPassword: !!u.password_hash, hasGoogle: !!u.google_sub, marketing: !!u.marketing_opt_in },
+    user: { id: u.id, name: u.name, email: u.email, phone: u.phone, hasPassword: !!u.password_hash, hasGoogle: !!u.google_sub, marketing: !!u.marketing_opt_in, monthlyEmail: u.monthly_email !== 0 },
     plan: { key: planKey(u), name: plan.name, profiles: plan.profiles, status: u.plan_status, renewsAt: u.plan_renews_at, personal: plan.personal, interval: u.plan_interval || 'month' },
     allowance: Object.fromEntries(Object.keys(plan.limits).map((k) => [k, { used: used[k] || 0, max: quotaLimit(u, k) }])),
     profiles: store.listProfiles(u.id).map((p, i) => ({ id: p.id, name: p.name, relation: p.relation, birth: p.birth, natal: p.natal, hasPalm: !!p.palm, hasFace: !!p.face, hasReading: !!p.reading, locked: i >= plan.profiles })),
@@ -651,6 +661,8 @@ if (!isTest) {
     // Email: owner campaigns that are queued, and festival-eve emails (checked every 15 minutes).
     setInterval(() => emailCampaignTick().catch((e) => console.error('email campaigns', e.message)), 60000).unref();
     setInterval(() => festivalEmailTick().then((r) => r && console.log(`Festival email: ${r.sent} sent, ${r.failed} failed`)).catch((e) => console.error('festival email', e.message)), 15 * 60000).unref();
+    // Month ahead for paid users on the 1st (checked hourly).
+    setInterval(() => monthlyTick(narrate).then((n) => n && console.log(`Month ahead sent to ${n} accounts`)).catch((e) => console.error('month ahead', e.message)), 3600000).unref();
     // Nightly database backup (checked hourly; one copy a day), first check 10 minutes after start.
     const backupIfDue = () => { if (!listBackups().some((b) => b.file.includes(new Date().toISOString().slice(0, 10)))) nightlyBackup(); };
     setTimeout(backupIfDue, 10 * 60000).unref();

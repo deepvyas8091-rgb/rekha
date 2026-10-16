@@ -49,7 +49,7 @@ select, input:not([type=checkbox]):not([type=file]) {
 .site-head { position: sticky; top: 0; z-index: 10; background: var(--bg); border-bottom: 1px solid var(--line); }
 .bar { max-width: var(--page); margin: 0 auto; display: flex; justify-content: space-between; align-items: center; gap: var(--s3); padding: var(--s3) var(--s4) var(--s2); }
 .brand { font-family: var(--serif); font-size: var(--fs-lg); font-weight: 700; color: var(--brand); display: flex; gap: var(--s2); align-items: center; white-space: nowrap; }
-.mark { display: inline-grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; background: var(--accent); color: var(--accent-ink); font-size: .95rem; }
+.mark { display: inline-block; width: 32px; height: 32px; border-radius: 50%; vertical-align: middle; object-fit: cover; }
 .top-actions { display: flex; gap: var(--s2); align-items: center; min-width: 0; }
 .chip-btn { border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 7px 14px; font-size: var(--fs-sm); font-weight: 500; cursor: pointer; white-space: nowrap; max-width: 140px; overflow: hidden; text-overflow: ellipsis; }
 .chip-btn.premium { background: var(--accent); color: var(--accent-ink); border-color: transparent; font-weight: 600; }
@@ -461,3 +461,18 @@ dialog.cam { width: min(96vw, 520px); }
 .primary.small { padding: 6px 12px; min-height: 34px; font-size: var(--fs-sm); }
 .place-guess { display: grid; gap: var(--s2); background: var(--neutral-bg); color: var(--ink); border-radius: var(--radius-sm); padding: var(--s3); margin-bottom: var(--s3); font-size: var(--fs-sm); }
 .place-guess .two { display: flex; flex-wrap: wrap; gap: var(--s2); align-items: center; }
+
+/* ---------- engagement ---------- */
+.share-row { display: flex; flex-wrap: wrap; gap: var(--s2); margin: var(--s3) 0; }
+.share-row .ghost { text-decoration: none; color: var(--ink); }
+.cal-btns { display: flex; flex-wrap: wrap; gap: var(--s2); align-items: center; }
+.cal-btns a.ghost { text-decoration: none; color: var(--ink); }
+.found { list-style: none; padding: 0; margin: var(--s3) 0 0; display: grid; gap: var(--s2); }
+.found li.card { margin: 0; padding: var(--s3) var(--s4); }
+.q-chips { display: flex; flex-wrap: wrap; gap: var(--s2); margin-bottom: var(--s3); }
+.q-chips .chip { background: var(--surface-2); border-color: transparent; cursor: pointer; text-align: left; }
+.invites { list-style: none; padding: 0; margin: var(--s3) 0 0; display: grid; gap: var(--s2); }
+.quick-result { background: var(--best-bg); border-radius: var(--radius-sm); padding: var(--s3) var(--s4); }
+.consent { position: fixed; left: var(--s3); right: var(--s3); bottom: calc(var(--s3) + env(safe-area-inset-bottom)); z-index: 50; max-width: 640px; margin: 0 auto; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); padding: var(--s3) var(--s4); display: grid; gap: var(--s2); font-size: var(--fs-sm); }
+.consent p { margin: 0; }
+.consent div { display: flex; gap: var(--s2); }

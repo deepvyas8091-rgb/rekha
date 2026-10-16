@@ -31,6 +31,7 @@ const short = (d, lang = 'en') => new Date(`${d}T12:00:00Z`).toLocaleDateString(
 /** Join description parts, dropping optional ones from the end while it is over 160 characters. */
 const fit = (base, ...optional) => { let d = base; for (const o of optional) { if (o && [...`${d} ${o}`].length <= 160) d = `${d} ${o}`; } return d; };
 const pretty = (d, lang = 'en') => new Date(`${d}T12:00:00Z`).toLocaleDateString(LANGS[lang].locale, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' });
+const SITE_URL = () => (process.env.PUBLIC_URL || 'https://rekha.io').replace(/\/$/, '');
 const baseOf = (req) => (process.env.PUBLIC_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
 const langOf = (req) => req.lang || 'en';
 
@@ -213,8 +214,10 @@ export function seoRoutes(app) {
     }).join(' · ')}</p>`;
     const windows = (list) => list.map((w) => `<div class="window"><strong>${esc(w.start)} – ${esc(w.end)}</strong><span>${esc(dt(w.choghadiya))} · ${esc(tt('{planets} hora', { planets: w.horas.map(dt).join(', ') }))}</span></div>`).join('');
     // How the page was worked out: shown on every timing page (AI search engines prefer sourced, dated numbers).
+    // Plain WhatsApp share link with the answer sentence (works without JavaScript).
+    const shareLink = (text, path) => `<p class="share-row"><a class="ghost" href="https://wa.me/?text=${encodeURIComponent(`${text} ${SITE_URL()}${localePath(lang, path)}`)}" target="_blank" rel="noopener">${esc(tt('Share on WhatsApp'))}</a></p>`;
     const method = (c, t) => `<p class="method hint">${esc(tt('Calculated for {city} ({lat}, {lon}, {tz}) from local sunrise {sunrise} and sunset {sunset}, with the Lahiri ayanamsa. Updated at {time} local time.', { city: dt(c.name), lat: c.lat.toFixed(2), lon: c.lon.toFixed(2), tz: c.tz, sunrise: t.sunrise, sunset: t.sunset, time: nowIn(c.tz) }))} <a href="/insights/how-rekha-works">${esc(tt('How Rekha calculates'))}</a></p>`;
-    return { row, slotRows, crossLinks, windows, method };
+    return { row, slotRows, crossLinks, windows, method, shareLink };
   };
   const ogImage = (base, kind, c) => `${base}/og/${kind}/${c.slug}.png`;
 
@@ -226,7 +229,7 @@ export function seoRoutes(app) {
       const { date, t } = dayData(c, offset);
       send(res, cached(`cg:${lang}:${c.slug}:${date}:${offset}`, 1800000, () => {
         const { tt, dt, cta, faqHtml, cityLinks } = helpers(lang);
-        const { row, slotRows, crossLinks, windows, method } = rowsFor(lang);
+        const { row, slotRows, crossLinks, windows, method, shareLink } = rowsFor(lang);
         const city = dt(c.name); const day = pretty(date, lang);
         const best = t.bestWindows.general;
         const goodNames = t.choghadiya.day.filter((s) => ['best', 'good'].includes(s.quality)).map((s) => `${dt(s.name)} ${s.start}–${s.end}`);
@@ -251,6 +254,7 @@ export function seoRoutes(app) {
           jsonld: faqLd(faq),
           body: `
             <p class="answer">${esc(answer)}</p>
+            ${shareLink(answer, path)}
             <section class="block"><h2>${esc(offset ? tt('Best times tomorrow') : tt('Best times today'))}</h2><div class="windows">${windows(best) || `<p class="hint">${esc(tt('No clean daytime window today.'))}</p>`}</div></section>
             <div class="cols"><section class="block"><h2>${esc(tt('Day Choghadiya'))}</h2>${slotRows(t.choghadiya.day)}</section>
             <section class="block"><h2>${esc(tt('Night Choghadiya'))}</h2>${slotRows(t.choghadiya.night)}</section></div>
@@ -272,7 +276,7 @@ export function seoRoutes(app) {
       const { date, t } = dayData(c, offset);
       send(res, cached(`rk:${lang}:${c.slug}:${date}:${offset}`, 1800000, () => {
         const { tt, dt, cta, faqHtml, cityLinks } = helpers(lang);
-        const { row, crossLinks, method } = rowsFor(lang);
+        const { row, crossLinks, method, shareLink } = rowsFor(lang);
         const city = dt(c.name); const day = pretty(date, lang);
         const get = (n) => t.badTimes.find((b) => b.name === n) || t.goodTimes.find((b) => b.name === n);
         const rk = get('Rahu Kaal'); const ab = get('Abhijit Muhurta');
@@ -293,6 +297,7 @@ export function seoRoutes(app) {
           jsonld: faqLd(faq),
           body: `
             <p class="answer">${esc(tt('Rahu Kaal in {city} on {day} is from {start} to {end}.', { city, day, start: rk.start, end: rk.end }))}</p>
+            ${shareLink(tt('Rahu Kaal in {city} on {day} is from {start} to {end}.', { city, day, start: rk.start, end: rk.end }), path)}
             <div class="card now"><div class="sub">${esc(offset ? tt('Rahu Kaal tomorrow') : tt('Rahu Kaal today'))}</div><div class="big">${esc(rk.start)} – ${esc(rk.end)}</div><div class="sub">${esc(tt('Avoid starting new work, travel or big purchases in this window.'))}</div></div>
             <div class="cols"><section class="block"><h2>${esc(tt('Periods to avoid'))}</h2><div class="list">${t.badTimes.map((b) => row(b, 'bad')).join('')}</div></section>
             <section class="block"><h2>${esc(tt('Auspicious windows'))}</h2><div class="list">${t.goodTimes.filter((g) => !g.skip).map((g) => row(g, 'good')).join('')}</div></section></div>
@@ -570,6 +575,8 @@ export function seoRoutes(app) {
         crumbs: [[tt('Festivals'), '/festivals'], [fest, `/festivals/${f.slug}`], [city, `/festivals/${f.slug}/${c.slug}`]],
         jsonld: faqLd(faq),
         body: `<p class="answer">${esc(answer)}</p>
+          <p class="share-row"><a class="ghost" href="https://wa.me/?text=${encodeURIComponent(`${answer} ${SITE_URL()}${localePath(lang, `/festivals/${f.slug}/${c.slug}`)}`)}" target="_blank" rel="noopener">${esc(tt('Share on WhatsApp'))}</a>
+            <a class="ghost" href="/cal/festival/${f.slug}.ics?${new URLSearchParams({ lat: c.lat, lon: c.lon, tz: c.tz, name: c.name, lang })}" rel="nofollow">${esc(tt('Add to calendar'))}</a></p>
           ${x.muhurat || f.kind === 'moonrise' || f.kind === 'chhath' ? `<div class="card now"><div class="sub">${esc(keyLabel(tt, f))}</div><div class="big">${esc(keyTime(f, x))}</div><div class="sub">${esc(day)}</div></div>` : ''}
           <div class="table-wrap card"><table><tbody>${rows.map(([k, v]) => `<tr><th scope="row">${esc(k)}</th><td><strong>${esc(v)}</strong></td></tr>`).join('')}</tbody></table></div>
           <section class="card"><p>${esc(dt(FESTIVAL_INFO[f.slug] || ''))}</p></section>

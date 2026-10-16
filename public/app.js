@@ -17,6 +17,8 @@ const state = {
   guestBirth: local.get('birth'), // signed-out users keep one chart on the device
   palm: null, face: null, history: [], cgPart: 'day', timings: null,
 };
+// Usage events: GA4 and Clarity (when set up and allowed) and the first-party funnel. See src/analytics.js.
+const track = (name, params) => { try { window.rk?.(name, params); } catch { /* never break the app for analytics */ } };
 const profiles = () => state.me.profiles || [];
 const current = () => profiles().find((p) => p.id === state.profileId && !p.locked) || profiles().find((p) => !p.locked) || null;
 const isPaid = () => !!state.me.plan?.personal;
@@ -52,7 +54,7 @@ async function boot() {
   const cityOpts = state.meta.cities.map((c, i) => `<option value="${i}">${esc(d(c.name))}</option>`).join('');
   for (const sel of ['#placeSel', '[name=city]', '[name=bCity]', '[name=gCity]']) { $(sel).innerHTML = cityOpts; citySearch($(sel)); }
   const actOpts = state.meta.activities.map((a) => `<option value="${a}">${esc(actName(a))}</option>`).join('');
-  $('#activity').innerHTML = actOpts; $('#calActivity').innerHTML = actOpts;
+  $('#activity').innerHTML = actOpts; $('#calActivity').innerHTML = actOpts; $('#mfActivity').innerHTML = actOpts;
   // Reading language: the page language unless the user picked another one for readings.
   $('#lang').innerHTML = Object.entries(state.meta.languageNames).map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join('');
   const readLang = local.get(`readLang.${lang}`);
@@ -72,10 +74,14 @@ async function boot() {
   bindAuth();
   renderGuides();
   applyLayout();
+  bindEngagement();
+  track('app_open', { lang });
   await refreshMe();
   loadToday();
   finishCheckout();
   // Deep links from articles, e.g. /?tab=chart. Tabs keep the URL in sync, so Back works.
+  const invite = new URLSearchParams(location.search).get('invite');
+  if (invite) openInvite(invite);
   const tab = new URLSearchParams(location.search).get('tab');
   if (tab && $(`#tab-${tab}`)) switchTab(tab, false);
   window.addEventListener('popstate', () => switchTab(new URLSearchParams(location.search).get('tab') || 'today', false));
@@ -140,7 +146,7 @@ async function refreshMe() {
   $('#profileBar').hidden = usable.length < 2;
   $('#profileSel').innerHTML = usable.map((p) => `<option value="${p.id}">${esc(p.name)}</option>`).join('');
   if (current()) $('#profileSel').value = current().id;
-  renderProfiles(); updateSources(); renderMatchPickers();
+  renderProfiles(); updateSources(); renderMatchPickers(); renderInviteCard(); renderMonthCard(); renderQuick();
 }
 
 function bindUi() {
@@ -219,6 +225,7 @@ function useGps() {
 }
 function setPlace(p) {
   state.placeGuess = null;
+  setTimeout(() => window.dispatchEvent(new Event('rekha:place')), 0);
   state.place = p; local.set('place', p); $('#placeBtn').textContent = p.name;
   syncAlerts();
   loadToday(); $('#panchang').innerHTML = ''; $('#calendar').innerHTML = '';
@@ -271,6 +278,7 @@ function bindAuth() {
     btn.disabled = true;
     try {
       await post(path, body);
+      track(path.endsWith('signup') ? 'sign_up' : 'login', { method: 'phone' });
       const pending = state.pendingPlan;
       const news = f.marketing?.checked;
       $('#signinDlg').close(); f.reset();
@@ -308,7 +316,7 @@ async function openSignin(why, mode) {
     google.accounts.id.initialize({
       client_id: state.meta.googleClientId,
       callback: async ({ credential }) => {
-        try { await post('/api/auth/google', { credential }); const pending = state.pendingPlan; $('#signinDlg').close(); await afterSignin(pending); } catch (e) { authError(e.message); }
+        try { await post('/api/auth/google', { credential }); track('login', { method: 'google' }); const pending = state.pendingPlan; $('#signinDlg').close(); await afterSignin(pending); } catch (e) { authError(e.message); }
       },
     });
     const w = Math.min(360, Math.max(240, $('#signinDlg .sheet-body').clientWidth - 8));
@@ -352,6 +360,7 @@ const priceOf = (key) => {
   return list?.[key] || (state.interval === 'year' ? null : state.meta.plans.find((x) => x.key === key)?.price);
 };
 async function openPlans(why, preselect) {
+  track('plans_view');
   await loadPricing();
   const cur = state.me.plan?.key || 'free';
   const curIv = state.me.plan?.interval || 'month';
@@ -430,6 +439,7 @@ async function subscribe(plan, { skipConfirm = false } = {}) {
     const s = await post('/api/billing/subscribe', { plan, interval: state.interval || 'month', lang, tz: Intl.DateTimeFormat().resolvedOptions().timeZone });
     // Stripe: plan changes happen straight away; new subscriptions go to Stripe's payment page.
     if (s.changed) { $('#plansDlg').close(); await refreshMe(); loadToday(); toast(t('Welcome to {plan}!', { plan: t(PLAN_NAME[s.plan] || s.plan) })); return; }
+    track('checkout_start', { plan, interval: state.interval || 'month' });
     if (s.url) { location.href = s.url; return; }
     await loadRazorpay();
     const rzp = new window.Razorpay({
@@ -454,6 +464,7 @@ async function finishCheckout() {
   try {
     const r = await post('/api/billing/verify', { sessionId: sid });
     await refreshMe(); loadToday();
+    track('purchase', { plan: r.plan });
     toast(t('Welcome to {plan}!', { plan: t(PLAN_NAME[r.plan] || r.plan) }));
   } catch (e) { toast(e.message); }
 }
@@ -473,6 +484,7 @@ function openAccount() {
     <button class="primary" id="accPlans">${esc(p.key === 'free' ? t('See premium plans') : t('Change plan'))}</button>
     ${p.key !== 'free' && p.status !== 'cancelling' && p.status !== 'cancelled' ? `<button class="ghost" id="accCancel">${esc(t('Cancel subscription'))}</button>` : ''}
     <label class="check"><input type="checkbox" id="accNews"${m.user.marketing ? ' checked' : ''}> <span>${esc(t('Festival reminders and occasional updates'))}</span></label>
+    ${p.personal ? `<label class="check"><input type="checkbox" id="accMonthly"${m.user.monthlyEmail ? ' checked' : ''}> <span>${esc(t('Email me my month ahead on the 1st'))}</span></label>` : ''}
     <details class="explain"><summary>${esc(m.user.phone ? t('Change mobile number') : t('Add mobile number'))}</summary><div>
       <form id="accPhone" class="form"><span class="phone"><select name="countryCode" aria-label="${esc(t('Country code'))}">${countryOptions(homeCountry())}</select><input name="phone" type="tel" inputmode="numeric" placeholder="98765 43210" required></span><button class="ghost">${esc(t('Save number'))}</button></form></div></details>
     <details class="explain"><summary>${esc(m.user.hasPassword ? t('Change password') : t('Set a password (log in with your mobile number)'))}</summary><div>
@@ -491,6 +503,7 @@ function openAccount() {
     try { await post('/api/billing/cancel', {}); await refreshMe(); openAccount(); } catch (e) { alert(e.message); }
   });
   $('#accOut').addEventListener('click', async () => { await post('/api/auth/logout', {}); location.reload(); });
+  $('#accMonthly')?.addEventListener('change', async (e) => { try { await post('/api/me/monthly-email', { on: e.target.checked }); } catch (err) { $('#accMsg').textContent = err.message; } });
   $('#accNews').addEventListener('change', async (e) => {
     try { await post('/api/me/marketing', { optIn: e.target.checked, lang, tz: Intl.DateTimeFormat().resolvedOptions().timeZone }); $('#accMsg').textContent = e.target.checked ? t('You will get festival reminders and updates.') : t('Festival reminders and updates are off.'); } catch (err) { $('#accMsg').textContent = err.message; }
   });
@@ -950,7 +963,7 @@ async function readPalm(canvas) {
   try {
     const r = await post('/api/palm', fd);
     if (r.lines?.warning) { out.innerHTML = `<p class="q-bad">${esc(d(r.lines.warning))} ${esc(t('Retake with your open palm filling the frame.'))}</p>`; return; }
-    state.palm = r.palm; updateSources();
+    state.palm = r.palm; updateSources(); track('palm_scan', { saved: !!r.saved });
     const note = r.saved ? t('Saved to {name}. Photo deleted after reading. Your combined reading in the Reading tab now includes your palm.', { name: prof.name })
       : state.me.user ? t('Photo deleted after reading. Add your birth details in Kundli to save scans to a profile.')
         : t('Photo deleted after reading. Nothing was saved. Your free reading in the Reading tab can include this palm.');
@@ -1060,7 +1073,7 @@ async function onFace(e) {
     if (!lms) { out.innerHTML = `<p class="q-bad">${esc(t('No face found. Face the camera straight on in even light.'))}</p>`; return; }
     dots(canvas, lms.filter((_, i) => i % 6 === 0), '#6fe0d4');
     const r = await post('/api/face', { consent: true, profileId: current()?.id, landmarks: lms.map(({ x, y }) => ({ x, y })) });
-    state.face = { faceType: r.faceType, facts: r.facts };
+    state.face = { faceType: r.faceType, facts: r.facts }; track('face_scan');
     out.innerHTML = `<h2>${esc(t('Your face: {type} type', { type: d(r.faceType) }))}</h2>${factsHtml(r.facts)}<p class="hint">${esc(t('Only measurements were sent. Your photo never left this device.'))}</p>`;
     if (state.me.user) await refreshMe();
   } catch (err) { showError(out, err); }
@@ -1093,7 +1106,7 @@ async function guestReading() {
   el.hidden = false; el.textContent = t('Writing your reading…');
   try {
     const r = await post('/api/reading', { birth: state.guestBirth, name: state.guestBirth.name, palm: state.palm, face: state.face, language: $('#lang').value, location: loc() });
-    el.innerHTML = readingHtml(r);
+    el.innerHTML = readingHtml(r); track('free_reading', { guest: true });
     el.insertAdjacentHTML('beforeend', `<div class="card upsell"><p>${esc(t('This short reading is free and was not saved.'))}</p>
       <div class="two"><button class="primary" id="guestSave">${esc(t('Create a free account to keep it'))}</button><button class="ghost" id="fullUp">${esc(t('See what the full reading adds'))}</button></div></div>`);
     $('#guestSave').addEventListener('click', () => openSignin(t('A free account keeps your palm and chart, so your readings can use them.'), 'signup'));
@@ -1107,6 +1120,7 @@ async function onReading(refresh = false) {
   try {
     const r = await post('/api/reading', { profileId: current().id, language: $('#lang').value, location: loc(), refresh: refresh === true });
     el.innerHTML = readingHtml(r); state.facts = r.facts; state.history = [];
+    if (!r.cached) track(r.kind === 'full' ? 'full_reading' : 'free_reading', { guest: false });
     if (r.cached) {
       // Saved reading: shown free. Rewriting it uses one reading from the monthly allowance.
       const when = fmtDate(r.at, { day: 'numeric', month: 'short' });
@@ -1123,6 +1137,7 @@ async function onReading(refresh = false) {
 }
 async function onAsk(e) {
   e.preventDefault();
+  track('ask_question');
   const q = $('#chatQ').value.trim(); if (!q || !current()) return;
   $('#chatQ').value = '';
   $('#chatLog').insertAdjacentHTML('beforeend', `<div class="msg me">${esc(q)}</div>`);
@@ -1221,7 +1236,7 @@ function bindAlerts() {
       const { publicKey } = await api('/api/push/key');
       const sub = (await reg.pushManager.getSubscription()) || (await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(publicKey) }));
       await sendAlertPrefs(sub, true);
-      alertsUi(true); alertsMsg(t('Alerts are on for {city}. They follow the location you set at the top.', { city: d(state.place.name) }));
+      alertsUi(true); track('alerts_on', { morning: !!alertPrefs().morning, rahu: alertPrefs().rahu }); alertsMsg(t('Alerts are on for {city}. They follow the location you set at the top.', { city: d(state.place.name) }));
     } catch (e) { alertsMsg(e.message || t('Could not turn on alerts. Please try again.')); } finally { btn.disabled = false; }
   });
   $('#alertsOff').addEventListener('click', async () => {
@@ -1236,7 +1251,7 @@ function bindAlerts() {
 
 // ---------- choose what Today shows ----------
 // Saved on this device only (a display preference, not account data).
-const SECTIONS = [['daily', N('Your daily guidance')], ['horo', N('Daily horoscope')], ['best', N('Best time for')], ['times', N('Avoid today and auspicious windows')],
+const SECTIONS = [['quick', N('Find your Moon sign')], ['daily', N('Your daily guidance')], ['horo', N('Daily horoscope')], ['calendar', N('Add Rekha to your calendar')], ['best', N('Best time for')], ['times', N('Avoid today and auspicious windows')],
   ['alerts', N('Daily alerts')], ['chogh', N('Choghadiya')], ['hora', N('Hora (planetary hours)')]];
 function layout() {
   const saved = local.get('todayLayout');
@@ -1267,6 +1282,186 @@ function renderCustomise() {
 }
 function openCustomise() { renderCustomise(); $('#todayDlg').showModal(); }
 
+// ---------- share today's timings (WhatsApp and others) ----------
+// A picture of today's key times for the city, ready for a family group, plus a link back.
+async function shareToday() {
+  const tm = state.timings; if (!tm) return;
+  const rk = tm.badTimes.find((b) => b.name === 'Rahu Kaal');
+  const best = (tm.bestWindows[$('#activity').value] || tm.bestWindows.general || [])[0];
+  const ab = tm.goodTimes.find((g) => g.name === 'Abhijit Muhurta' && !g.skip);
+  const city = d(state.place.name);
+  const day = fmtDate(Date.now(), { weekday: 'long', day: 'numeric', month: 'long' });
+  const c = document.createElement('canvas'); c.width = 1080; c.height = 1350;
+  const g = c.getContext('2d');
+  const grad = g.createLinearGradient(0, 0, 0, 1350); grad.addColorStop(0, '#2b1840'); grad.addColorStop(1, '#6b2d3c');
+  g.fillStyle = grad; g.fillRect(0, 0, 1080, 1350);
+  const font = (w, px) => `${w} ${px}px ${getComputedStyle(document.body).fontFamily}`;
+  g.fillStyle = '#f0b27a'; g.font = font(700, 60); g.fillText(t('Today in {city}', { city }), 80, 170);
+  g.fillStyle = '#f2ebf7'; g.font = font(500, 40); g.fillText(day, 80, 240);
+  const rows = [
+    [t('Sunrise / Sunset'), `${tm.sunrise} / ${tm.sunset}`],
+    rk && [t('Rahu Kaal'), `${rk.start} – ${rk.end}`],
+    best && [t('Best time'), `${best.start} – ${best.end}`],
+    ab && [d('Abhijit Muhurta'), `${ab.start} – ${ab.end}`],
+  ].filter(Boolean);
+  rows.forEach(([k, v], i) => {
+    g.fillStyle = '#cdbfdb'; g.font = font(500, 40); g.fillText(k, 80, 400 + i * 190);
+    g.fillStyle = '#ffffff'; g.font = font(700, 88); g.fillText(v, 80, 490 + i * 190);
+  });
+  g.fillStyle = '#f0b27a'; g.font = font(600, 40); g.fillText(t('Free for your city: {site}', { site: location.host }), 80, 1270);
+  const url = `${location.origin}${pathFor(lang, '/')}?ref=share`;
+  const text = `${t('Today in {city}', { city })} (${day}): ${rk ? `${t('Rahu Kaal')} ${rk.start}–${rk.end}. ` : ''}${best ? `${t('Best time')} ${best.start}–${best.end}. ` : ''}${url}`;
+  track('share_timings', { city: state.place.name });
+  const blob = await new Promise((r) => c.toBlob(r, 'image/png'));
+  const file = new File([blob], 'rekha-today.png', { type: 'image/png' });
+  if (navigator.canShare?.({ files: [file] })) { navigator.share({ files: [file], text }).catch(() => {}); return; }
+  window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank', 'noopener');
+}
+
+// ---------- calendar subscription ----------
+function calendarUrl() {
+  const p = new URLSearchParams({ lat: state.place.lat, lon: state.place.lon, tz: state.place.tz, name: d(state.place.name), lang, rahu: $('#calRahu').checked ? '1' : '0' });
+  return `${location.host}/cal/feed.ics?${p}`;
+}
+function renderCalendarLinks() {
+  const u = calendarUrl();
+  $('#calGoogle').href = `https://calendar.google.com/calendar/render?cid=${encodeURIComponent(`webcal://${u}`)}`;
+  $('#calApple').href = `webcal://${u}`;
+}
+
+// ---------- muhurat finder ----------
+async function findDates(e) {
+  e.preventDefault();
+  const out = $('#finderOut'); const activity = $('#mfActivity').value;
+  out.innerHTML = `<p class="muted">${esc(t('Checking the next 60 days…'))}</p>`;
+  track('muhurat_search', { activity });
+  try {
+    const r = await api(`/api/muhurat?${qs({ ...loc(), activity, profile: isPaid() ? current()?.id : null })}`);
+    const label = { excellent: t('Best'), good: t('Good') };
+    out.innerHTML = r.dates.length ? `<ol class="found">${r.dates.map((x) => `<li class="card">
+        <div class="row-head"><strong>${esc(fmtDate(`${x.date}T12:00:00`, { weekday: 'short', day: 'numeric', month: 'short' }))}</strong>${pill(x.rating === 'excellent' ? 'best' : 'good', label[x.rating])}</div>
+        ${x.window ? `<div class="sub">${esc(t('Best time'))}: <strong>${esc(x.window.start)} – ${esc(x.window.end)}</strong> · ${esc(d(x.window.choghadiya))}</div>` : ''}
+        <small class="hint">${esc(`${d(x.tithi)} · ${d(x.nakshatra)}`)}${x.reasons.length ? ` · ${esc(x.reasons.map(d).join('; '))}` : ''}</small></li>`).join('')}</ol>`
+      : `<p class="hint">${esc(t('No clearly good dates in the next 60 days for this. Try a different activity or ask your family priest.'))}</p>`;
+    out.insertAdjacentHTML('beforeend', `<p class="hint">${esc(r.dates.some((x) => x.personal) ? t('Personalised to your chart.') : t('General dates for {city}. Premium personalises them to your birth chart.', { city: d(state.place.name) }))} ${esc(t('For weddings and griha pravesh, confirm the date with your family priest.'))}</p>`);
+  } catch (err) { showError(out, err); }
+}
+
+// ---------- partner match invites ----------
+function renderInviteCard() {
+  const el = $('#inviteCard'); const p = current();
+  if (!state.me.user || !p) { el.hidden = true; return; }
+  el.hidden = false;
+  el.innerHTML = `<h2>${esc(t('Invite your partner to match'))}</h2>
+    <p class="hint">${esc(t('Send a link. Your partner enters their own birth details and you both see the 36-gun score. Their details are not stored.'))}</p>
+    <button class="primary" id="inviteBtn">${esc(t('Create invite link for {name}', { name: p.name }))}</button><div id="inviteList"></div>`;
+  $('#inviteBtn').addEventListener('click', createInvite);
+  loadInvites();
+}
+async function createInvite() {
+  try {
+    const r = await post('/api/match-invites', { profileId: current().id, lang });
+    track('invite_created');
+    const text = t('{name} invited you to check your kundli match on Rekha: {url}', { name: current().name, url: r.url });
+    if (navigator.share) { navigator.share({ text, url: r.url }).catch(() => {}); } else window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank', 'noopener');
+    loadInvites();
+  } catch (e) { toast(e.message); }
+}
+async function loadInvites() {
+  try {
+    const list = await api('/api/match-invites');
+    $('#inviteList').innerHTML = list.length ? `<ul class="invites">${list.map((i) => `<li>${i.result ? `<strong>${esc(i.partner_name || t('Your partner'))}: ${i.result.total} / 36</strong> ${pill(i.result.total >= 25 ? 'good' : i.result.total >= 18 ? 'neutral' : 'bad', i.result.verdict)}` : `<span class="muted">${esc(t('Waiting for your partner'))} · ${esc(fmtDate(i.created_at, { day: 'numeric', month: 'short' }))}</span>`}</li>`).join('')}</ul>` : '';
+  } catch { /* ignore */ }
+}
+async function openInvite(token) {
+  switchTab('match', false);
+  const el = $('#invitedCard');
+  try {
+    const inv = await api(`/api/match-invites/${encodeURIComponent(token)}`);
+    track('invite_opened');
+    const cityOpts = state.meta.cities.map((c, i) => `<option value="${i}">${esc(d(c.name))}</option>`).join('');
+    el.hidden = false;
+    el.innerHTML = `<h2>${esc(t('{name} invited you to check your kundli match', { name: inv.inviterName }))}</h2>
+      <p class="hint">${esc(t('Enter your birth details. Only the score is shared; your details are not stored.'))}</p>
+      <form id="invForm" class="form"><label><span>${esc(t('Your name'))}</span> <input name="name" maxlength="40" required></label>
+        <div class="two"><label><span>${esc(t('Date of birth'))}</span> <input name="date" type="date" required></label><label><span>${esc(t('Time of birth'))}</span> <input name="time" type="time"></label></div>
+        <label><span>${esc(t('Birth place'))}</span> <select name="city">${cityOpts}</select></label>
+        <button class="primary">${esc(t('See our match'))}</button></form><div id="invOut"></div>`;
+    citySearch(el.querySelector('[name=city]'));
+    $('#invForm').addEventListener('submit', async (e) => {
+      e.preventDefault(); const f = e.target;
+      try {
+        const r = await post(`/api/match-invites/${encodeURIComponent(token)}`, { name: f.name.value.trim(), birth: birthFrom(f.date.value, f.time.value || '12:00', f.city.value) });
+        track('invite_completed');
+        $('#invOut').innerHTML = `<div class="card"><div class="score">${esc(r.total)} / 36</div><div>${pill(r.total >= 25 ? 'good' : r.total >= 18 ? 'neutral' : 'bad', r.verdict)}</div>
+          <table><thead><tr><th>${esc(t('Koota'))}</th><th>${esc(t('Score'))}</th><th>${esc(t('Area'))}</th></tr></thead><tbody>${r.kootas.map((k) => `<tr><td>${esc(d(k.koota))}</td><td>${esc(k.score)} / ${esc(k.max)}</td><td>${esc(d(k.area))}</td></tr>`).join('')}</tbody></table>
+          <p>${esc(t('Manglik'))}: ${esc(d(r.manglik.inviter))} / ${esc(d(r.manglik.partner))}</p></div>
+          <div class="card upsell"><p>${esc(t('Now see your own kundli, free.'))}</p><button class="primary" id="invOwn">${esc(t('Open my kundli'))}</button></div>`;
+        $('#invOwn').addEventListener('click', () => switchTab('chart'));
+        f.hidden = true;
+      } catch (err) { showError($('#invOut'), err); }
+    });
+  } catch (e) { el.hidden = false; el.innerHTML = `<p class="q-bad">${esc(e.message)}</p>`; }
+}
+
+// ---------- month ahead (paid) ----------
+function renderMonthCard() { $('#monthCard').hidden = !(isPaid() && current()); }
+async function showMonth() {
+  const out = $('#monthOut'); out.innerHTML = `<p class="muted">${esc(t('Writing your month ahead…'))}</p>`;
+  try {
+    const r = await api(`/api/month-ahead/${current().id}?${qs({ ...loc(), language: $('#lang').value })}`);
+    track('month_ahead_view');
+    out.innerHTML = `<p class="ai-label">${esc(t('Written by AI from your dasha, Sade Sati and this month\'s calculated good days.'))}</p><div class="prose">${esc(r.text)}</div>`;
+  } catch (e) { showError(out, e); }
+}
+
+// ---------- suggested questions for Ask Rekha ----------
+const CHIPS = [N('What does this month look like for my career?'), N('Which days this week are good for travel?'), N('What should I focus on in relationships?'),
+  N('What does my current dasha mean for me?'), N('What are my natural strengths?')];
+function renderChips() {
+  $('#chatChips').innerHTML = CHIPS.map((q, i) => `<button type="button" class="chip" data-q="${i}">${esc(t(q))}</button>`).join('');
+  $$('#chatChips [data-q]').forEach((b) => b.addEventListener('click', () => {
+    track('question_chip', { q: CHIPS[+b.dataset.q] });
+    $('#chatQ').value = t(CHIPS[+b.dataset.q]);
+    $('#chatForm').requestSubmit();
+  }));
+}
+
+// ---------- 30-second quick start ----------
+function renderQuick() { $('#quickCard').hidden = !!(state.guestBirth || current()); }
+async function onQuick(e) {
+  e.preventDefault();
+  const f = e.target; const out = $('#quickOut');
+  const birth = { date: f.date.value, time: f.time.value || '12:00', lat: state.place.lat, lon: state.place.lon, tz: state.place.tz, city: state.place.name };
+  try {
+    const data = await post('/api/profile', { birth });
+    const v = data.vedic;
+    state.guestBirth = { ...birth, name: '' }; local.set('birth', state.guestBirth);
+    state.guestNatal = { nakshatra: v.birthNakshatra, moonSign: v.moonSignIndex };
+    track('quickstart_done', { time: !!f.time.value });
+    $('#horoSign').value = String(v.moonSignIndex); local.set('horoSign', v.moonSignIndex); loadHoroscope(); updateSources();
+    out.innerHTML = `<div class="quick-result"><p>${esc(t('Your Moon sign (rashi) is {sign} and your birth star is {star}.', { sign: lang === 'en' && englishSign(v.moonSign) ? `${v.moonSign} (${englishSign(v.moonSign)})` : d(v.moonSign), star: d(v.birthNakshatra) }))}</p>
+      <p class="hint">${esc(t('Birth place taken as {city}. Change it in Kundli for an exact chart.', { city: d(state.place.name) }))}${f.time.value ? '' : ` ${esc(t('Without a birth time your sign is right on most days; add the time in Kundli for your ascendant.'))}`}</p>
+      <div class="two"><button class="primary" id="qkHoro">${esc(t("Today's horoscope for me"))}</button><button class="ghost" id="qkRead">${esc(t('Get my free reading'))}</button></div></div>`;
+    f.hidden = true;
+    $('#qkHoro').addEventListener('click', () => $('#h-horo').scrollIntoView({ behavior: 'smooth' }));
+    $('#qkRead').addEventListener('click', () => { switchTab('reading'); guestReading(); });
+  } catch (err) { showError(out, err); }
+}
+
+function bindEngagement() {
+  $('#shareToday').addEventListener('click', shareToday);
+  $('#calRahu').addEventListener('change', renderCalendarLinks);
+  for (const id of ['#calGoogle', '#calApple']) $(id).addEventListener('click', () => track('calendar_add', { app: id === '#calGoogle' ? 'google' : 'apple' }));
+  $('#calCopy').addEventListener('click', async () => { try { await navigator.clipboard.writeText(`https://${calendarUrl()}`); toast(t('Link copied. Paste it into your calendar app as a new subscription.')); track('calendar_add', { app: 'copy' }); } catch { prompt(t('Copy this link'), `https://${calendarUrl()}`); } });
+  renderCalendarLinks();
+  window.addEventListener('rekha:place', renderCalendarLinks);
+  $('#finderForm').addEventListener('submit', findDates);
+  $('#monthBtn').addEventListener('click', showMonth);
+  $('#quickForm').addEventListener('submit', onQuick);
+  renderChips();
+}
+
 // ---------- install as an app (PWA) ----------
 let deferredPrompt = null;
 const isStandalone = () => window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
@@ -1284,7 +1479,7 @@ function showInstall(kind) {
   };
 }
 window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); deferredPrompt = e; showInstall('prompt'); });
-window.addEventListener('appinstalled', () => { $('#installCard').hidden = true; toast(t('Rekha is on your home screen')); });
+window.addEventListener('appinstalled', () => { track('app_installed'); $('#installCard').hidden = true; toast(t('Rekha is on your home screen')); });
 $('#installLater').addEventListener('click', () => { $('#installCard').hidden = true; local.set('installDismissed', Date.now() + 7 * 86400000); });
 if (isIos() && !isStandalone()) showInstall('ios');
 

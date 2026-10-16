@@ -55,11 +55,11 @@ export async function sendBatch(list, fetchImpl = fetch) {
 export const sendOne = async (m, fetchImpl) => (await sendBatch([m], fetchImpl))[0];
 
 /** The email around a message: brand, content, a button, and the footer with the unsubscribe link. */
-function layout(lang, { heading, paragraphs, button, unsub, why }) {
+export function layout(lang, { heading, paragraphs, button, unsub, why }) {
   const dir = 'ltr';
   const html = `<!doctype html><html lang="${lang}" dir="${dir}"><body style="margin:0;background:#fbf6ee;font-family:Arial,Helvetica,sans-serif;color:#24182f">
 <div style="max-width:560px;margin:0 auto;padding:24px 16px">
-  <p style="margin:0 0 16px;font-size:20px;font-weight:bold;color:#2b1840">Rekha</p>
+  <p style="margin:0 0 16px;font-size:20px;font-weight:bold;color:#2b1840"><img src="${base()}/icons/logo-96.png" width="32" height="32" alt="" style="vertical-align:middle;border:0;margin-right:8px">Rekha</p>
   <div style="background:#ffffff;border:1px solid #e8dccb;border-radius:12px;padding:24px">
     <h1 style="margin:0 0 12px;font-size:22px;line-height:1.3">${esc(heading)}</h1>
     ${paragraphs.map((p) => `<p style="margin:0 0 14px;font-size:16px;line-height:1.6">${esc(p)}</p>`).join('')}

@@ -80,7 +80,7 @@ test('every sitemap URL renders and every internal link resolves', async () => {
   }
   const linkList = [...links].filter((l, i) => !/\/(choghadiya|rahu-kaal|panchang|festivals\/[\w-]+)\/[\w-]+/.test(l) || i % 17 === 0);
   for (const l of linkList) {
-    if (/\.(css|svg|png|json|woff2)$/.test(l)) continue;
+    if (/\.(css|svg|png|json|woff2|ics)$/.test(l)) continue;
     const r = await fetch(base + l);
     assert.equal(r.status, 200, `broken internal link ${l}`);
   }

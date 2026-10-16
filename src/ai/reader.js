@@ -154,10 +154,11 @@ const BRIEFS = {
   full: 'Write a unified destiny profile. Sections: Who you are, Love and relationships, Career and money, Your current phase (use the dasha and transits), Your best days and times this week, One thing to work on. Where palm, face and chart agree, say so explicitly ("your palm and chart both point to..."). 450 to 650 words.',
   daily: 'Write today\'s personal guidance in 80 to 120 words: the day rating, the best window today and what to use it for, one window to avoid, and one encouraging line.',
   horoscope: 'Write today\'s horoscope for people with this Moon sign (rashi), in 110 to 150 words. Start with the overall mood of the day, then one short line each on love, career and money matching the scores (1 = challenging, 5 = excellent), then one practical tip. Mention the lucky colour and number at the end. Do not use headings or lists. Never frighten the reader.',
+  month: 'Write this person\'s month ahead in 220 to 320 words: the overall theme from their current dasha and Sade Sati status, then short paragraphs on work and money, relationships, and health habits (general wellbeing only, no medical claims), then their best days (give the dates) and the days to go slow, and the festivals this month. Calm and practical. No headings.',
   match: 'Explain this compatibility result in 250 to 350 words: strengths first, then doshas calmly with the note that an expert can review cancellation rules.',
 };
 // Output caps sized for the word targets, with room for Indic scripts.
-const MAX_OUT = { teaser: 600, full: 1500, daily: 600, match: 900, horoscope: 800 };
+const MAX_OUT = { teaser: 600, full: 1500, daily: 600, match: 900, horoscope: 800, month: 1200 };
 
 /** Turn deterministic facts into a narrated report in the user's language. */
 export async function narrate({ kind, facts, language = 'en', name, paid = false }) {

@@ -8,7 +8,7 @@
   <!--HEAD-->
   <meta name="theme-color" content="#2b1840">
   <link rel="manifest" href="/manifest.json">
-  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="icon" href="/favicon.ico" sizes="48x48"><link rel="icon" href="/icon.svg" type="image/svg+xml">
   <!--FONTS-->
   <link rel="stylesheet" href="/styles.css">
   <!--EARLY-->
@@ -23,7 +23,7 @@
 <body>
   <header class="site-head">
     <div class="bar">
-      <a class="brand" href="/" style="text-decoration:none"><span class="mark" aria-hidden="true">रे</span> Rekha</a>
+      <a class="brand" href="/" style="text-decoration:none"><img class="mark" src="/icons/logo-64.png" width="32" height="32" alt="" aria-hidden="true"> Rekha</a>
       <div class="top-actions">
         <!--LANGMENU-->
         <button id="placeBtn" class="chip-btn" aria-label="Change location" data-i18n-aria data-i18n>Set location</button>
@@ -60,8 +60,20 @@
         <div class="install-actions"><button class="primary" id="installBtn" data-i18n>Install</button><button class="linkish" id="installLater" data-i18n>Not now</button></div>
       </div>
       <div class="now card" id="nowCard"><div class="muted" data-i18n>Loading today…</div></div>
+      <div class="share-row"><button type="button" class="ghost" id="shareToday"><span aria-hidden="true">⇪</span> <span data-i18n>Share today's timings</span></button></div>
       <div id="todayBody" class="today-body">
       <div id="dailyCard" data-sec="daily"></div>
+
+      <section class="card quick" id="quickCard" data-sec="quick" hidden aria-labelledby="h-quick">
+        <h2 id="h-quick" data-i18n>Find your Moon sign in 30 seconds</h2>
+        <p class="hint" data-i18n>Your date of birth is enough. Add the time if you know it. No account needed.</p>
+        <form id="quickForm" class="form">
+          <div class="two"><label><span data-i18n>Date of birth</span> <input name="date" type="date" required></label>
+          <label><span data-i18n>Time of birth (optional)</span> <input name="time" type="time"></label></div>
+          <button class="primary" data-i18n>Show my sign</button>
+        </form>
+        <div id="quickOut"></div>
+      </section>
 
       <section class="card alerts" id="alertsCard" data-sec="alerts" aria-labelledby="h-alerts">
         <div class="row-head"><h2 id="h-alerts" data-i18n>Daily alerts</h2><span class="tag" id="alertsState"></span></div>
@@ -71,6 +83,13 @@
         <label class="check"><input type="checkbox" id="alertNews" checked> <span data-i18n>Festival mornings with your city's muhurat, and news from Rekha</span></label>
         <div class="two"><button type="button" class="primary" id="alertsOn" data-i18n>Turn on alerts</button><button type="button" class="ghost" id="alertsOff" hidden data-i18n>Turn off</button></div>
         <p class="hint" id="alertsMsg" hidden></p>
+      </section>
+
+      <section class="card cal-sub" id="calCard" data-sec="calendar" aria-labelledby="h-calsub">
+        <h2 id="h-calsub" data-i18n>Add Rekha to your calendar</h2>
+        <p class="hint" data-i18n>Festivals with the puja muhurat for your city appear in Google or Apple Calendar and update by themselves.</p>
+        <label class="check"><input type="checkbox" id="calRahu"> <span data-i18n>Also add Rahu Kaal every day</span></label>
+        <div class="cal-btns"><a class="ghost" id="calGoogle" target="_blank" rel="noopener" data-i18n>Google Calendar</a><a class="ghost" id="calApple" data-i18n>Apple or Outlook</a><button type="button" class="linkish" id="calCopy" data-i18n>Copy link</button></div>
       </section>
 
       <section class="card horo" data-sec="horo" aria-labelledby="h-horo">
@@ -122,6 +141,12 @@
         <p class="lede" id="panchIntro"></p>
       </header>
       <div id="panchang" class="grid"></div>
+      <section class="card finder" aria-labelledby="h-finder">
+        <h2 id="h-finder" data-i18n>Find a good date</h2>
+        <p class="hint" data-i18n>The best dates in the next 60 days for what you are planning, with the best time on each day.</p>
+        <form id="finderForm" class="two"><select id="mfActivity" aria-label="Activity" data-i18n-aria></select><button class="primary" data-i18n>Find dates</button></form>
+        <div id="finderOut"></div>
+      </section>
       <section class="block">
         <div class="row-head"><h2 data-i18n>Good days this month</h2><select id="calActivity" aria-label="Activity for calendar" data-i18n-aria></select></div>
         <p class="hint" data-i18n>Each day is scored for the activity you pick, from its tithi, nakshatra, yoga and Bhadra. Tap a day to see its Panchang.</p>
@@ -189,9 +214,14 @@
         <div class="two"><select id="lang" aria-label="Language" data-i18n-aria></select><button id="readBtn" class="primary" data-i18n>Create reading</button></div>
         <div id="sources" class="chips"></div>
       </div>
+      <section class="card month" id="monthCard" hidden>
+        <div class="row-head"><h2 data-i18n>Your month ahead</h2><button type="button" class="ghost small" id="monthBtn" data-i18n>Show</button></div>
+        <div id="monthOut"></div>
+      </section>
       <article id="reading" class="card prose" hidden></article>
       <div class="card" id="chatCard" hidden>
         <h2 data-i18n>Ask Rekha</h2>
+        <div id="chatChips" class="q-chips"></div>
         <div id="chatLog" class="chat"></div>
         <form id="chatForm" class="two"><input id="chatQ" placeholder="What does my chart say about my career?" data-i18n-ph required maxlength="500"><button class="primary" data-i18n>Ask</button></form>
         <p class="hint" id="chatLeft"></p>
@@ -205,6 +235,8 @@
         <h1 id="h-match" data-i18n>Kundli matching</h1>
         <p class="lede" data-i18n>Ashtakoota Gun Milan: eight areas of compatibility scored out of 36, with Manglik check.</p>
       </header>
+      <section class="card invite" id="inviteCard" hidden></section>
+      <section class="card invite" id="invitedCard" hidden></section>
       <form id="matchForm" class="card form">
         <div id="matchPick" class="two" hidden><select id="matchA" aria-label="First person" data-i18n-aria></select><select id="matchB" aria-label="Second person" data-i18n-aria></select></div>
         <div id="matchManual" class="two">

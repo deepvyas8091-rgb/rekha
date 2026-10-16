@@ -25,7 +25,8 @@ test('hashed, minified files with a one-year cache; fonts from rekha.io; no Goog
   const r = await get(js);
   assert.equal(r.headers.get('cache-control'), 'public, max-age=31536000, immutable');
   const body = await r.text();
-  assert.ok(body.length < 70000, `app.js is minified (${body.length} bytes)`);
+  const source = (await import('node:fs')).readFileSync(new URL('../public/app.js', import.meta.url), 'utf8').length;
+  assert.ok(body.length < source * 0.8, `app.js is minified (${body.length} of ${source} bytes)`);
   assert.match(body, /from"\/assets\/guide\.[0-9a-f]{10}\.js"/, 'imports point at hashed files');
   assert.equal((await get(css)).headers.get('cache-control'), 'public, max-age=31536000, immutable');
   // An old hash still works (briefly cached), so a cached page never loads a broken app.

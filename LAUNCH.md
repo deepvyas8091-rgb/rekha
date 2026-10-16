@@ -239,6 +239,16 @@ What then happens by itself:
 
 **Visitor's city.** Cloudflare > Rules > Settings (Managed Transforms) > turn on **Add visitor location headers**. New visitors then see their own city (from their network) instead of Mumbai, with a one-tap "Use my exact location" for the precise spot. Without it, the app falls back to the biggest city in the visitor's time zone (Mumbai for all of India).
 
+## Step 8g: Google Analytics 4 and Microsoft Clarity
+
+1. GA4: Google Analytics > Admin > Create property "Rekha" > Web stream for https://rekha.io > copy the Measurement ID (starts with `G-`). In Railway Variables add `GA4_MEASUREMENT_ID`.
+2. Clarity: clarity.microsoft.com > New project "Rekha" > Settings > Overview > copy the Project ID (a short code). In Railway Variables add `CLARITY_PROJECT_ID`. In Clarity settings, keep "Mask sensitive content" on (birth details and names are then hidden in recordings).
+3. In GA4 > Admin > Events, mark as key events: `sign_up`, `purchase`, `alerts_on`, `share_timings`, `calendar_add`, `quickstart_done`.
+4. Both load after the page has finished, so they do not slow it down. Visitors in Europe see a consent bar and are only tracked after they accept; advertising features are off for everyone.
+5. Update the privacy policy (with your lawyer) to name Google Analytics and Microsoft Clarity as processors before setting `LEGAL_PAGES_FINAL=1`.
+
+The owner dashboard's **Funnel** card counts the same key events on Rekha's own server, so you can see visitors, alerts, installs, free readings, sign-ups and payments even when an ad blocker hides GA4.
+
 ## Step 9: Before you tell anyone
 
 - [ ] A lawyer reviews `/privacy` and `/terms` (drafts are included, with [brackets] to fill in).

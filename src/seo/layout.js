@@ -3,6 +3,7 @@
 
 import { tFor, LANGS, localePath, readyLangs } from '../i18n/index.js';
 import { asset, fontTags } from '../assets.js';
+import { analyticsHead, consentBar } from '../analytics.js';
 import { htmlAttrs, hreflangTags, langMenu, localizeLinks } from '../i18n/shell.js';
 
 export const SITE = {
@@ -96,16 +97,17 @@ ${base ? `<meta property="og:url" content="${esc(canonical)}"><meta property="og
 <meta name="twitter:card" content="summary_large_image">
 <meta name="theme-color" content="#2b1840">
 <link rel="manifest" href="/manifest.json">
-<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="icon" href="/favicon.ico" sizes="48x48"><link rel="icon" href="/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
 ${fontTags(lang)}
 <link rel="stylesheet" href="${asset('styles.css')}">
 ${ld}
+${analyticsHead()}
 </head>
 <body class="seo">
 <header class="site-head">
   <div class="bar">
-    <a class="brand" href="/" style="text-decoration:none"><span class="mark" aria-hidden="true">रे</span> Rekha</a>
+    <a class="brand" href="/" style="text-decoration:none"><img class="mark" src="/icons/logo-64.png" width="32" height="32" alt="" aria-hidden="true"> Rekha</a>
     <div class="top-actions">${langMenu(lang, opts.path, langs.includes(lang) ? langs : [...langs, lang])}<a class="chip-btn premium" href="/">${esc(tt('Open app'))}</a></div>
   </div>
   <nav class="tabs" aria-label="${esc(tt('Sections'))}">
@@ -119,7 +121,9 @@ ${opts.notice ? `<div class="lang-note">${opts.notice}</div>` : ''}
   ${opts.body}
 </main>
 ${footer(lang)}
+${consentBar(lang)}
 <script>if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
+if (window.rk) rk('page_view');
 document.cookie = 'rk_lang=${lang}; Path=/; Max-Age=31536000; SameSite=Lax';</script>
 </body>
 </html>`;
