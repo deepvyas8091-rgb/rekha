@@ -37,17 +37,26 @@ const langOf = (req) => req.lang || 'en';
 
 // Small cache: daily pages are identical for everyone until the date changes.
 // Keys include the language and the list of ready languages (which changes hreflang).
+// Capped by size, not count: Railway bills memory by the minute, and Cloudflare is the real
+// cache for crawlers, so this only needs to hold the pages people are reading right now.
 const cache = new Map();
+const CACHE_BYTES = Math.max(4, Number(process.env.PAGE_CACHE_MB) || 24) * 1024 * 1024;
+let cacheBytes = 0;
+const drop = (k) => { const e = cache.get(k); if (e) { cacheBytes -= e.bytes; cache.delete(k); } };
 function cached(key, ttlMs, build) {
   key = `${key}|${readyLangs().join(',')}`;
   const hit = cache.get(key);
-  if (hit && hit.until > Date.now()) return hit.html;
+  if (hit && hit.until > Date.now()) { cache.delete(key); cache.set(key, hit); return hit.html; } // most recently used last
+  if (hit) drop(key);
   const html = build();
-  cache.set(key, { html, until: Date.now() + ttlMs });
-  if (cache.size > 3000) cache.delete(cache.keys().next().value);
+  const bytes = html.length * 2 + 200;
+  cache.set(key, { html, until: Date.now() + ttlMs, bytes });
+  cacheBytes += bytes;
+  for (const k of cache.keys()) { if (cacheBytes <= CACHE_BYTES) break; drop(k); }
   return html;
 }
-export const clearPageCache = () => cache.clear();
+export const clearPageCache = () => { cache.clear(); cacheBytes = 0; };
+export const pageCacheStats = () => ({ pages: cache.size, mb: +(cacheBytes / 1048576).toFixed(1), capMb: CACHE_BYTES / 1048576 });
 // Browsers keep a page for maxAge; Cloudflare (s-maxage) keeps it a little longer and may serve
 // a slightly stale copy while it fetches a fresh one, so visitors never wait for the server.
 // Pages that show "today" never outlive the local midnight of their city (res.locals.tz).

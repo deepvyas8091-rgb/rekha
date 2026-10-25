@@ -96,5 +96,5 @@ export function analyticsRoutes(app, { isAdmin, limit }) {
     prune();
     res.status(204).end();
   });
-  app.get('/api/admin/funnel', (req, res) => (isAdmin(req) ? res.json({ ...funnel(Math.min(90, Math.max(7, +req.query.days || 30))), tags: analyticsStatus() }) : res.status(403).json({ error: 'forbidden' })));
+  app.get('/api/admin/funnel', (req, res) => (isAdmin(req) ? res.json({ ...funnel(Math.min(90, Math.max(7, +req.query.days || 30))), tags: analyticsStatus(), memory: { rssMb: Math.round(process.memoryUsage().rss / 1048576), heapMb: Math.round(process.memoryUsage().heapUsed / 1048576) } }) : res.status(403).json({ error: 'forbidden' })));
 }

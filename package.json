@@ -4,7 +4,7 @@
   "description": "AI palm, face and horoscope reader with Panchang, Choghadiya and good/bad time engine",
   "main": "index.js",
   "scripts": {
-    "start": "node --no-warnings src/server.js",
+    "start": "node --no-warnings --max-old-space-size=320 --max-semi-space-size=8 src/server.js",
     "test": "node --no-warnings --test test/*.test.js"
   },
   "keywords": [],

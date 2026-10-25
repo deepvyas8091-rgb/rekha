@@ -12,7 +12,8 @@ const require = createRequire(import.meta.url);
 const fontDir = path.dirname(require.resolve('@expo-google-fonts/inter/package.json'));
 const FONTS = [path.join(fontDir, '400Regular', 'Inter_400Regular.ttf'), path.join(fontDir, '700Bold', 'Inter_700Bold.ttf')];
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const cache = new Map();
+const cache = new Map(); // PNGs, capped at about 12 MB
+let cacheBytes = 0;
 
 /** PNG buffer for { title, big, sub, date }. */
 export async function shareImage({ title, big, sub, date }) {
@@ -31,7 +32,7 @@ export async function shareImage({ title, big, sub, date }) {
   <text x="80" y="560" font-family="Inter" font-size="30" fill="#cdbfdb">${esc(date)}  ·  rekha.io</text>
 </svg>`;
   const png = new Resvg(svg, { font: { fontFiles: FONTS, loadSystemFonts: false, defaultFontFamily: 'Inter' }, fitTo: { mode: 'width', value: 1200 } }).render().asPng();
-  if (cache.size > 500) cache.delete(cache.keys().next().value);
-  cache.set(key, png);
+  cache.set(key, png); cacheBytes += png.length;
+  for (const [k, v] of cache) { if (cacheBytes <= 12 * 1048576) break; cache.delete(k); cacheBytes -= v.length; }
   return png;
 }
