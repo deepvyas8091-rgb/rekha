@@ -129,6 +129,7 @@ export async function extractPalmLines(base64, mediaType = 'image/jpeg', { paid 
   // The tool schema + system (~930 tokens) are identical for every user: cacheable.
   const cache = cacheMode('palm');
   const res = await client.messages.create({
+    thinking: { type: 'disabled' }, // short writing tasks: the whole budget goes to the answer
     model: MODEL_VISION,
     max_tokens: 1200,
     system: PALM_SYSTEM,
@@ -169,6 +170,7 @@ export async function narrate({ kind, facts, language = 'en', name, paid = false
   const model = ['daily', 'teaser', 'horoscope'].includes(kind) ? MODEL_CHAT : MODEL_REPORT;
   const cache = cacheMode(`narrate:${model}`);
   const res = await client.messages.create({
+    thinking: { type: 'disabled' }, // short writing tasks: the whole budget goes to the answer
     model,
     max_tokens: MAX_OUT[kind] || 800,
     // Below the 512-token minimum this flag is ignored at no charge; it takes
@@ -222,6 +224,7 @@ export async function narrateReading({ kind, facts, basis, language = 'en', name
   const model = kind === 'teaser' ? MODEL_CHAT : MODEL_REPORT;
   const cache = cacheMode(`narrate:${model}`);
   const res = await client.messages.create({
+    thinking: { type: 'disabled' }, // short writing tasks: the whole budget goes to the answer
     model,
     max_tokens: kind === 'full' ? 2200 : 900,
     system: [{ type: 'text', text: READER_SYSTEM, ...(cache ? { cache_control: ephemeral } : {}) }],
@@ -263,6 +266,7 @@ export async function ask({ question, facts, history = [], language = 'en', paid
   if (!client) return 'Demo mode: add ANTHROPIC_API_KEY to get answers from your palm, face and chart.';
   checkBudget(paid);
   const res = await client.messages.create({
+    thinking: { type: 'disabled' }, // short writing tasks: the whole budget goes to the answer
     model: MODEL_CHAT,
     max_tokens: 600,
     // Automatic caching: follow-up questions minutes apart reuse the system prompt,
@@ -347,6 +351,7 @@ export async function translateItems(items, language, { context = 'interface' } 
   const name = LANGUAGES[language] || language;
   const cache = cacheMode('translate');
   const res = await client.messages.create({
+    thinking: { type: 'disabled' }, // short writing tasks: the whole budget goes to the answer
     model: MODEL_CHAT,
     max_tokens: context === 'article' ? 12000 : 8000,
     system: [{ type: 'text', text: TRANSLATE_SYSTEM, ...(cache ? { cache_control: ephemeral } : {}) }],
