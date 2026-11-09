@@ -10,6 +10,8 @@ import about from '../content/about.js';
 import { SEO_CITIES } from '../data/seo-cities.js';
 import { FESTIVALS, FESTIVAL_BY_SLUG, nextFestivalDate, festivalCalendar, festivalIn } from '../engine/festivals.js';
 import { FESTIVAL_INFO } from '../content/festivals-info.js';
+import { VRATS, VRAT_BY_SLUG, vratDates, nextVrats } from '../engine/vrat.js';
+import { VRAT_INFO, VRAT_RULE } from '../content/vrat-info.js';
 import { panchang, goodBadTimes } from '../engine/index.js';
 import { dailyHoroscope, SIGN_SLUGS } from '../engine/horoscope.js';
 import { RASHI } from '../engine/constants.js';
@@ -75,6 +77,7 @@ const send = (res, html, maxAge = 600) => {
 const helpers = (lang) => {
   const tt = tFor(lang);
   const dt = (s) => dataT(lang, s);
+  dt.lang = lang;
   const cityName = (c) => dt(c.name);
   const cta = (label, href, note = '') => `<aside class="cta card"><div><strong>${esc(label)}</strong>${note ? `<p class="hint">${esc(note)}</p>` : ''}</div><a class="primary" href="${esc(href)}">${esc(tt('Open free'))}</a></aside>`;
   const faqHtml = (faq) => (faq?.length ? `<section class="faq"><h2>${esc(tt('Frequently asked questions'))}</h2>${faq.map(([q, a]) => `<details class="card fold"><summary><h3>${esc(q)}</h3></summary><p>${esc(a)}</p></details>`).join('')}</section>` : '');
@@ -124,6 +127,12 @@ export const festAnswer = (lang, f, x, city) => {
       : tt('On {day} in {city}, Bhadra lasts from {bs} to {be}, covering the whole Pradosh Kaal ({start} to {end}). Families then follow their local priest or calendar for the time.', { city, day, bs: x.bhadra.start, be: x.bhadra.end, ...x.pradosh });
   }
   if (f.kind === 'nishita') return tt('{festival} Nishita puja time in {city} is {start} to {end} on the night of {day}.', { festival: fest, city, day, ...x.muhurat });
+  if (f.kind === 'aparahna') return tt('{festival} tilak muhurat in {city} on {day} is {start} to {end}, in Aparahna (the afternoon window).', { festival: fest, city, day, ...x.muhurat });
+  if (f.kind === 'govardhan') return tt('{festival} muhurat in {city} on {day}: morning {start} to {end}, evening {es} to {ee}.', { festival: fest, city, day, ...x.muhurat, es: x.evening.start, ee: x.evening.end });
+  if (f.kind === 'pradoshkal') return tt('{festival} deep daan time in {city} on {day} is {start} to {end}, in Pradosh Kaal after sunset.', { festival: fest, city, day, ...x.muhurat });
+  if (f.kind === 'sankranti') return tt('{festival} in {city} is on {day}. Punya Kaal is {start} to {end}; Maha Punya Kaal {ms} to {me}.', { festival: fest, city, day, ...x.muhurat, ms: x.maha.start, me: x.maha.end });
+  if (f.kind === 'pongal') return tt('{festival} in {city} is on {day}. The Sun enters Makara at {time} on {tday}; sunrise on Pongal day is {sunrise}.', { festival: fest, city, day, time: x.transit, tday: pretty(x.transitDate, lang), sunrise: x.sunrise });
+  if (f.kind === 'lohri') return tt('{festival} in {city} is on {day}, the eve of Makar Sankranti. Sunset is at {sunset}, when the Lohri fire is lit.', { festival: fest, city, day, sunset: x.bonfire });
   return tt('{festival} falls on {day} in {city}.', { festival: fest, day, city });
 };
 
@@ -491,8 +500,8 @@ export function seoRoutes(app) {
   // festivals people search with a city name (muhurat, moonrise, arghya) get a page per city.
   const yearOf = (d) => d.slice(0, 4);
   const HUB_CITIES = CITY.slice(0, 40);
-  const keyTime = (f, x) => (f.kind === 'moonrise' ? x.moonrise : f.kind === 'chhath' ? `${x.sandhyaArghya} / ${x.ushaArghya}` : x.muhurat ? `${x.muhurat.start}–${x.muhurat.end}` : x.pradosh ? `${x.pradosh.start}–${x.pradosh.end}` : '');
-  const keyLabel = (tt, f) => (f.kind === 'moonrise' ? tt('Moonrise') : f.kind === 'chhath' ? tt('Sunset and sunrise arghya') : f.kind === 'nishita' ? tt('Nishita puja') : f.kind ? tt('Puja muhurat') : '');
+  const keyTime = (f, x) => (f.kind === 'moonrise' ? x.moonrise : f.kind === 'chhath' ? `${x.sandhyaArghya} / ${x.ushaArghya}` : f.kind === 'lohri' ? x.bonfire : f.kind === 'pongal' ? x.transit : x.muhurat ? `${x.muhurat.start}–${x.muhurat.end}` : x.pradosh ? `${x.pradosh.start}–${x.pradosh.end}` : '');
+  const keyLabel = (tt, f) => ({ moonrise: tt('Moonrise'), chhath: tt('Sunset and sunrise arghya'), nishita: tt('Nishita puja'), aparahna: tt('Tilak muhurat'), govardhan: tt('Morning muhurat'), pradoshkal: tt('Deep daan (Pradosh Kaal)'), sankranti: tt('Punya Kaal'), pongal: tt('Sankranti moment'), lohri: tt('Sunset (Lohri fire)') }[f.kind] || (f.kind ? tt('Puja muhurat') : ''));
 
   app.get('/festivals', (req, res) => {
     const lang = langOf(req);
@@ -504,7 +513,7 @@ export function seoRoutes(app) {
       return page({
         lang, base: baseOf(req), path: '/festivals',
         title: tt('Hindu Festival Dates {years}: Muhurat and Timings', { years }),
-        description: tt('Dates of Diwali, Dhanteras, Karwa Chauth, Chhath, Holi, Janmashtami, Navratri and more, with puja muhurat and moonrise times for your city.'),
+        description: tt('Dates of Diwali, Dhanteras, Karwa Chauth, Chhath, Makar Sankranti, Holi, Janmashtami, Navratri and more, with puja muhurat and moonrise times for your city.'),
         h1: tt('Upcoming Hindu festivals'), lede: tt('Dates for India, worked out from the Panchang. In some time zones a festival falls a day earlier or later; each city page shows the local date.'),
         crumbs: [[tt('Festivals'), '/festivals']],
         body: `<div class="table-wrap card"><table><thead><tr><th>${esc(tt('Festival'))}</th><th>${esc(tt('Date'))}</th></tr></thead><tbody>
@@ -566,6 +575,12 @@ export function seoRoutes(app) {
         chhath: tt('{festival} {year} in {city}: Sunset and Sunrise Arghya Times', { festival: fest, year, city }),
         pradosh: tt('{festival} {year} Muhurat in {city}', { festival: fest, year, city }),
         nishita: tt('{festival} {year} Nishita Puja Time in {city}', { festival: fest, year, city }),
+        aparahna: tt('{festival} {year} Tilak Muhurat in {city}: {start} to {end}', { festival: fest, year, city, start: x.muhurat?.start, end: x.muhurat?.end }),
+        govardhan: tt('{festival} {year} Muhurat in {city}: {start} to {end}', { festival: fest, year, city, start: x.muhurat?.start, end: x.muhurat?.end }),
+        pradoshkal: tt('{festival} {year} Deep Daan Time in {city}: {start} to {end}', { festival: fest, year, city, start: x.muhurat?.start, end: x.muhurat?.end }),
+        sankranti: tt('{festival} {year} Punya Kaal in {city}: {start} to {end}', { festival: fest, year, city, start: x.muhurat?.start, end: x.muhurat?.end }),
+        pongal: tt('{festival} {year} in {city}: Date and Sankranti Time', { festival: fest, year, city }),
+        lohri: tt('{festival} {year} in {city}: Date and Sunset Time', { festival: fest, year, city }),
       };
       const ends = (e) => (e ? tt('until {time}', { time: e.slice(11) }) + (e.slice(0, 10) !== x.date ? ` (${short(e.slice(0, 10), lang)})` : '') : '');
       const rows = [
@@ -577,7 +592,10 @@ export function seoRoutes(app) {
         ...(x.pradosh ? [[tt('Pradosh Kaal'), `${x.pradosh.start} – ${x.pradosh.end}`]] : []),
         ...(x.vrishabha ? [[tt('Vrishabha lagna'), `${x.vrishabha.start} – ${x.vrishabha.end}`]] : []),
         ...(x.bhadra ? [[tt('Bhadra'), `${x.bhadra.start} – ${x.bhadra.end}`]] : []),
+        ...(x.transit ? [[tt('Sun enters Makara'), `${x.transit} (${short(x.transitDate, lang)})`]] : []),
         ...(x.muhurat ? [[keyLabel(tt, f), `${x.muhurat.start} – ${x.muhurat.end}`]] : []),
+        ...(x.maha ? [[tt('Maha Punya Kaal'), `${x.maha.start} – ${x.maha.end}`]] : []),
+        ...(x.evening ? [[tt('Evening muhurat'), `${x.evening.start} – ${x.evening.end}`]] : []),
         ...(x.sandhyaArghya ? [[tt('Sandhya Arghya (sunset)'), x.sandhyaArghya], [tt('Usha Arghya (next sunrise)'), x.ushaArghya]] : []),
       ];
       const faq = [
@@ -594,7 +612,7 @@ export function seoRoutes(app) {
         body: `<p class="answer">${esc(answer)}</p>
           <p class="share-row"><a class="ghost" href="https://wa.me/?text=${encodeURIComponent(`${answer} ${SITE_URL()}${localePath(lang, `/festivals/${f.slug}/${c.slug}`)}`)}" target="_blank" rel="noopener">${esc(tt('Share on WhatsApp'))}</a>
             <a class="ghost" href="/cal/festival/${f.slug}.ics?${new URLSearchParams({ lat: c.lat, lon: c.lon, tz: c.tz, name: c.name, lang })}" rel="nofollow">${esc(tt('Add to calendar'))}</a></p>
-          ${x.muhurat || f.kind === 'moonrise' || f.kind === 'chhath' ? `<div class="card now"><div class="sub">${esc(keyLabel(tt, f))}</div><div class="big">${esc(keyTime(f, x))}</div><div class="sub">${esc(day)}</div></div>` : ''}
+          ${x.muhurat || ['moonrise', 'chhath', 'pongal', 'lohri'].includes(f.kind) ? `<div class="card now"><div class="sub">${esc(keyLabel(tt, f))}</div><div class="big">${esc(keyTime(f, x))}</div><div class="sub">${esc(day)}</div></div>` : ''}
           <div class="table-wrap card"><table><tbody>${rows.map(([k, v]) => `<tr><th scope="row">${esc(k)}</th><td><strong>${esc(v)}</strong></td></tr>`).join('')}</tbody></table></div>
           <section class="card"><p>${esc(dt(FESTIVAL_INFO[f.slug] || ''))}</p></section>
           <p class="method hint">${esc(tt('Calculated for {city} ({lat}, {lon}, {tz}) from local sunrise {sunrise} and sunset {sunset}, with the Lahiri ayanamsa. Updated at {time} local time.', { city, lat: c.lat.toFixed(2), lon: c.lon.toFixed(2), tz: c.tz, sunrise: x.sunrise, sunset: x.sunset, time: nowIn(c.tz) }))} ${esc(tt('Festival rules differ between regions and traditions. Rekha follows the common North Indian Panchang; check with your local priest for family ceremonies.'))}</p>
@@ -607,6 +625,178 @@ export function seoRoutes(app) {
     }), 3600);
   });
 
+  // ---------- embeddable widget ----------
+  // A small "today's timings" card that temples, community groups and blogs can put on their site.
+  // The copy-paste code includes a normal text link to the city page next to the frame, which is
+  // what earns Rekha a backlink; the frame itself is noindex so it never competes with the page.
+  app.get('/embed/today/:city', (req, res, next) => {
+    const c = CITY_BY_SLUG.get(req.params.city); if (!c) return next(); res.locals.tz = c.tz;
+    const lang = langOf(req);
+    const { tt, dt } = helpers(lang);
+    const { date, t } = dayData(c);
+    const rk = t.badTimes.find((b) => b.name === 'Rahu Kaal'); const ab = t.goodTimes.find((g) => g.name === 'Abhijit Muhurta' && !g.skip); const best = t.bestWindows.general[0];
+    const city = dt(c.name); const href = `${SITE_URL()}${localePath(lang, `/choghadiya/${c.slug}`)}`;
+    const row = (k, v, cls = '') => `<div class="r ${cls}"><span>${esc(k)}</span><b>${esc(v)}</b></div>`;
+    const slots = t.choghadiya.day.map((x) => `<li class="q-${esc(x.quality)}" data-s="${esc(x.start)}" data-e="${esc(x.end)}"><span>${esc(x.start)}–${esc(x.end)}</span><b>${esc(dt(x.name))}</b></li>`).join('');
+    res.set({ 'Content-Security-Policy': 'frame-ancestors *', 'X-Robots-Tag': 'noindex' });
+    send(res, `<!doctype html><html lang="${lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>${esc(tt('Today in {city}', { city }))}</title>
+<style>:root{--bg:#fbf6ee;--ink:#2b1840;--mut:#6b5b7b;--line:#eadfce;--good:#1f7a4d;--bad:#b3261e;--acc:#c9631b}@media (prefers-color-scheme:dark){:root{--bg:#1d1426;--ink:#f3ecf8;--mut:#bfb0cf;--line:#3a2d48;--good:#6fd39d;--bad:#ff8a80;--acc:#f0a35e}}
+*{box-sizing:border-box}body{margin:0;font:14px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--ink)}.w{padding:14px 16px}h1{font-size:16px;margin:0 0 2px}.d{color:var(--mut);margin:0 0 10px}
+.r{display:flex;justify-content:space-between;gap:8px;padding:6px 0;border-bottom:1px solid var(--line)}.r span{color:var(--mut)}.bad b{color:var(--bad)}.good b{color:var(--good)}
+ul{list-style:none;margin:10px 0 0;padding:0;display:grid;grid-template-columns:1fr 1fr;gap:4px}li{display:flex;justify-content:space-between;gap:6px;padding:4px 6px;border-radius:6px;font-size:12.5px}li span{color:var(--mut)}
+li.q-good b,li.q-best b{color:var(--good)}li.q-bad b{color:var(--bad)}li.now{outline:2px solid var(--acc)}.f{margin-top:10px;font-size:12px;color:var(--mut)}.f a{color:var(--acc)}</style></head>
+<body><div class="w"><h1>${esc(tt('Today in {city}', { city }))}</h1><p class="d">${esc(pretty(date, lang))}</p>
+${row(tt('Sunrise / Sunset'), `${t.sunrise} / ${t.sunset}`)}${rk ? row(dt('Rahu Kaal'), `${rk.start}–${rk.end}`, 'bad') : ''}${ab ? row(dt('Abhijit Muhurta'), `${ab.start}–${ab.end}`, 'good') : ''}${best ? row(tt('Best time'), `${best.start}–${best.end}`, 'good') : ''}
+<ul aria-label="${esc(tt('Day Choghadiya'))}">${slots}</ul>
+<p class="f"><a href="${esc(href)}" target="_blank" rel="noopener">${esc(tt('Full Choghadiya and Panchang for {city}', { city }))}</a> · Rekha</p></div>
+<script>(function(){try{var n=new Intl.DateTimeFormat('en-GB',{timeZone:${JSON.stringify(c.tz)},hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(new Date());document.querySelectorAll('li[data-s]').forEach(function(l){if(n>=l.dataset.s&&n<l.dataset.e)l.className+=' now'})}catch(e){}})();</script></body></html>`, 600);
+  });
+
+  app.get('/widgets', (req, res) => {
+    const lang = langOf(req);
+    send(res, cached(`widgets:${lang}`, 6 * 3600000, () => {
+      const { tt, dt } = helpers(lang);
+      const base = SITE_URL();
+      return page({
+        lang, base: baseOf(req), path: '/widgets',
+        title: tt('Free Choghadiya and Rahu Kaal Widget for Your Website'),
+        description: tt('Add today\'s Choghadiya, Rahu Kaal and Abhijit Muhurat for your city to a temple, community or blog website. Free, updates daily, no sign-up.'),
+        h1: tt('Free timings widget for your website'), lede: tt('Today\'s Choghadiya, Rahu Kaal and Abhijit Muhurat for your city, updated every day. Free for temples, community groups and blogs.'),
+        crumbs: [[tt('Widgets'), '/widgets']],
+        body: `<section class="card"><div class="form">
+            <label>${esc(tt('City'))} <select id="wCity">${CITY.map((c) => `<option value="${esc(c.slug)}"${c.slug === 'delhi' ? ' selected' : ''}>${esc(dt(c.name))}</option>`).join('')}</select></label>
+            <label>${esc(tt('Language'))} <select id="wLang">${readyLangs().map((l) => `<option value="${l}"${l === lang ? ' selected' : ''}>${esc(LANGS[l].name)}</option>`).join('')}</select></label>
+          </div>
+          <h2>${esc(tt('Copy this code'))}</h2>
+          <textarea id="wCode" rows="5" readonly style="width:100%;font:12px/1.4 ui-monospace,monospace"></textarea>
+          <p><button class="primary" id="wCopy" type="button">${esc(tt('Copy code'))}</button></p>
+          <p class="hint">${esc(tt('Paste it into any page of your website (in WordPress, use a Custom HTML block). Please keep the link under the widget; it is how people find the full timings.'))}</p></section>
+          <section class="block"><h2>${esc(tt('Preview'))}</h2><iframe id="wPrev" title="${esc(tt('Preview'))}" style="width:100%;max-width:420px;height:430px;border:1px solid var(--line,#ddd);border-radius:12px" loading="lazy"></iframe></section>
+          <script>(function(){var B=${JSON.stringify(base)},c=document.getElementById('wCity'),l=document.getElementById('wLang'),o=document.getElementById('wCode'),p=document.getElementById('wPrev');
+          function u(){var city=c.value,name=c.options[c.selectedIndex].text,pre=l.value==='en'?'':'/'+l.value,src=B+pre+'/embed/today/'+city;
+          o.value='<iframe src="'+src+'" title="Choghadiya today in '+name+'" style="width:100%;max-width:420px;height:430px;border:0" loading="lazy"></iframe>\\n<p style="font-size:13px"><a href="'+B+pre+'/choghadiya/'+city+'">Choghadiya and Rahu Kaal today in '+name+'</a> by Rekha</p>';
+          p.src=pre+'/embed/today/'+city}
+          c.onchange=l.onchange=u;u();document.getElementById('wCopy').onclick=function(){o.select();try{navigator.clipboard.writeText(o.value)}catch(e){document.execCommand('copy')}this.textContent=${JSON.stringify(tt('Copied'))}}})();</script>`,
+      });
+    }), 3600);
+  });
+
+  // ---------- monthly vrat dates ----------
+  // Ekadashi, Purnima, Amavasya, Pradosh and Sankashti Chaturthi a year ahead, for India (Delhi)
+  // and for every city, because the local sunrise, sunset or moonrise decides the day.
+  const DELHI = CITY_BY_SLUG.get('delhi') || CITY[0];
+  const vratWhat = (tt, slug) => ({ ekadashi: tt('Dates and Parana Times'), purnima: tt('Dates and Tithi Times'), amavasya: tt('Dates and Tithi Times'), pradosh: tt('Dates and Puja Times'), 'sankashti-chaturthi': tt('Dates and Moonrise Times') }[slug]);
+  const vName = (dt, v, x) => (v.slug === 'purnima' || v.slug === 'amavasya' || (v.slug === 'sankashti-chaturthi' && !/^Angaraki/.test(x.name)) ? `${monthT(dt.lang, x.masa)} ${dt(v.slug === 'purnima' ? 'Purnima' : v.slug === 'amavasya' ? 'Amavasya' : 'Sankashti Chaturthi')}` : dt(x.name));
+  const yearsOf = (list) => [...new Set(list.map((x) => x.date.slice(0, 4)))].join('–');
+  const vratAnswer = (lang, v, x, city) => {
+    const { tt, dt } = helpers(lang); const name = vName(dt, v, x); const day = pretty(x.date, lang);
+    const clock = (s) => `${s.slice(11)}${s.slice(0, 10) !== x.date ? ` (${short(s.slice(0, 10), lang)})` : ''}`;
+    if (v.slug === 'ekadashi') return x.parana ? tt('{name} is on {day} in {city}. Break the fast (parana) on {pday} between {start} and {end}.', { name, day, city, pday: short(x.parana.date, lang), start: x.parana.start, end: x.parana.end }) : tt('{name} is on {day} in {city}.', { name, day, city });
+    if (v.slug === 'pradosh') return x.puja ? tt('{name} is on {day} in {city}, with puja in Pradosh Kaal from {start} to {end}.', { name, day, city, ...x.puja }) : tt('{name} is on {day} in {city}.', { name, day, city });
+    if (v.slug === 'sankashti-chaturthi') return tt('{name} is on {day} in {city}. Moonrise is at {time}, when the fast is broken.', { name, day, city, time: x.moonrise || '-' });
+    return tt('{name} is on {day} in {city}. The tithi runs from {start} to {end}.', { name, day, city, start: clock(x.starts), end: clock(x.ends) });
+  };
+  const vratTable = (lang, v, list) => {
+    const { tt, dt } = helpers(lang);
+    const head = { ekadashi: [tt('Ekadashi'), tt('Parana (breaking the fast)')], pradosh: [tt('Name'), tt('Puja time')], 'sankashti-chaturthi': [tt('Name'), tt('Moonrise')] }[v.slug] || [tt('Name'), tt('Tithi')];
+    const clock = (s, d) => `${s.slice(11)}${s.slice(0, 10) !== d ? ` (${short(s.slice(0, 10), lang)})` : ''}`;
+    const extra = (x) => (v.slug === 'ekadashi' ? (x.parana ? `${short(x.parana.date, lang)}, ${x.parana.start}–${x.parana.end}` : '-')
+      : v.slug === 'pradosh' ? (x.puja ? `${x.puja.start}–${x.puja.end}` : '-')
+        : v.slug === 'sankashti-chaturthi' ? x.moonrise || '-'
+          : `${clock(x.starts, x.date)} – ${clock(x.ends, x.date)}`);
+    return `<div class="table-wrap card"><table><thead><tr><th>${esc(tt('Date'))}</th><th>${esc(head[0])}</th><th>${esc(head[1])}</th></tr></thead><tbody>
+      ${list.map((x) => `<tr><td>${esc(short(x.date, lang))} ${esc(x.date.slice(0, 4))}</td><td><strong>${esc(vName(dt, v, x))}</strong>${x.kshaya ? ' *' : ''}</td><td>${esc(extra(x))}</td></tr>`).join('')}
+      </tbody></table></div>${list.some((x) => x.kshaya) ? `<p class="hint">* ${esc(tt('The tithi begins and ends between two sunrises this time, so it is kept on the day it runs.'))}</p>` : ''}`;
+  };
+
+  app.get('/vrat', (req, res) => {
+    const lang = langOf(req); const from = todayIn('Asia/Kolkata');
+    send(res, cached(`vrat:${lang}:${from}`, 3 * 3600000, () => {
+      const { tt, dt, faqHtml } = helpers(lang);
+      const next = nextVrats(DELHI, from);
+      const faq = [[tt('How many Ekadashis are there in a year?'), tt('Usually 24, two in each lunar month, and 26 in a year with an extra (Adhik) month.')],
+        [tt('Are vrat dates the same everywhere?'), tt('No. The day depends on local sunrise, sunset or moonrise, so a city outside India can keep a vrat a day earlier or later. Each city page shows the local date.')]];
+      return page({
+        lang, base: baseOf(req), path: '/vrat',
+        title: tt('Vrat Dates {years}: Ekadashi, Purnima, Amavasya, Pradosh and Sankashti', { years: yearsOf(next) }),
+        description: tt('Next Ekadashi, Purnima, Amavasya, Pradosh and Sankashti Chaturthi dates, with parana, puja and moonrise times for your city.'),
+        h1: tt('Monthly vrat dates'), lede: tt('The fasting days of every month, worked out from the Panchang for your city.'),
+        crumbs: [[tt('Vrat dates'), '/vrat']], jsonld: faqLd(faq),
+        body: `<div class="table-wrap card"><table><thead><tr><th>${esc(tt('Vrat'))}</th><th>${esc(tt('Next date in India'))}</th></tr></thead><tbody>
+          ${next.map((x) => { const v = VRAT_BY_SLUG.get(x.slug); return `<tr><td><a href="/vrat/${v.slug}"><strong>${esc(dt(v.name))}</strong></a><br><small>${esc(vName(dt, v, x))}</small></td><td>${esc(pretty(x.date, lang))}</td></tr>`; }).join('')}
+          </tbody></table></div>
+          ${VRATS.map((v) => `<section class="card"><h2><a href="/vrat/${v.slug}">${esc(dt(v.name))}</a></h2><p>${esc(dt(VRAT_INFO[v.slug]))}</p></section>`).join('')}
+          ${faqHtml(faq)}
+          <p class="hint">${esc(dt(VRAT_RULE))} <a href="/festivals">${esc(tt('All festivals'))}</a></p>
+          ${subscribeBox(lang, '/vrat')}`,
+      });
+    }), 3600);
+  });
+
+  app.get('/vrat/:slug', (req, res, next) => {
+    const v = VRAT_BY_SLUG.get(req.params.slug); if (!v) return next();
+    const lang = langOf(req); const from = todayIn('Asia/Kolkata');
+    send(res, cached(`vratp:${lang}:${v.slug}:${from}`, 6 * 3600000, () => {
+      const { tt, dt, faqHtml } = helpers(lang);
+      const list = vratDates(v.slug, DELHI, from); const years = yearsOf(list); const first = list.find((x) => x.date >= from) || list[0];
+      const vrat = dt(v.name); const answer = vratAnswer(lang, v, first, dt(DELHI.name));
+      const faq = [[tt('When is the next {vrat}?', { vrat }), answer], [tt('Does the {vrat} date change by city?', { vrat }), tt('Yes. The day depends on local sunrise, sunset or moonrise, so a city outside India can keep a vrat a day earlier or later. Each city page shows the local date.')]];
+      return page({
+        lang, base: baseOf(req), path: `/vrat/${v.slug}`,
+        title: tt('{vrat} {years}: All Dates and Timings', { vrat, years }),
+        description: fit(answer, tt('All dates for the next 12 months, for India and your city.')),
+        h1: tt('{vrat} {years}', { vrat, years }), lede: tt('Dates for India (Delhi). Pick your city below for local dates and times.'),
+        crumbs: [[tt('Vrat dates'), '/vrat'], [vrat, `/vrat/${v.slug}`]], jsonld: faqLd(faq),
+        body: `<p class="answer">${esc(answer)}</p>
+          ${vratTable(lang, v, list)}
+          <section class="card"><p>${esc(dt(VRAT_INFO[v.slug]))}</p></section>
+          <section class="block"><h2>${esc(tt('{vrat} dates in your city', { vrat }))}</h2><ul class="link-grid">${CITY.map((c) => `<li><a href="/vrat/${v.slug}/${c.slug}">${esc(dt(c.name))}</a></li>`).join('')}</ul></section>
+          ${faqHtml(faq)}
+          <p class="hint">${esc(dt(VRAT_RULE))} <a href="/vrat">${esc(tt('All vrat dates'))}</a></p>
+          ${subscribeBox(lang, `/vrat/${v.slug}`)}`,
+      });
+    }), 3600);
+  });
+
+  app.get('/vrat/:slug/:city', (req, res, next) => {
+    const v = VRAT_BY_SLUG.get(req.params.slug); const c = CITY_BY_SLUG.get(req.params.city);
+    if (!v || !c) return next(); res.locals.tz = c.tz;
+    const lang = langOf(req); const from = todayIn(c.tz);
+    send(res, cached(`vratc:${lang}:${v.slug}:${c.slug}:${from}`, 6 * 3600000, () => {
+      const { tt, dt, cta, faqHtml } = helpers(lang);
+      const list = vratDates(v.slug, c, from); const years = yearsOf(list); const first = list.find((x) => x.date >= from) || list[0];
+      const vrat = dt(v.name); const city = dt(c.name); const answer = vratAnswer(lang, v, first, city);
+      const faq = [[tt('When is the next {vrat} in {city}?', { vrat, city }), answer]];
+      return page({
+        lang, base: baseOf(req), path: `/vrat/${v.slug}/${c.slug}`,
+        title: tt('{vrat} {years} in {city}: {what}', { vrat, years, city, what: vratWhat(tt, v.slug) }),
+        description: fit(answer, tt('All dates for the next 12 months in {city}.', { city })),
+        h1: tt('{vrat} {years} in {city}', { vrat, years, city }), lede: tt('Local dates and times for {city}, for the next 12 months.', { city }),
+        crumbs: [[tt('Vrat dates'), '/vrat'], [vrat, `/vrat/${v.slug}`], [city, `/vrat/${v.slug}/${c.slug}`]], jsonld: faqLd(faq),
+        body: `<p class="answer">${esc(answer)}</p>
+          <p class="share-row"><a class="ghost" href="https://wa.me/?text=${encodeURIComponent(`${answer} ${SITE_URL()}${localePath(lang, `/vrat/${v.slug}/${c.slug}`)}`)}" target="_blank" rel="noopener">${esc(tt('Share on WhatsApp'))}</a></p>
+          ${vratTable(lang, v, list)}
+          <section class="card"><p>${esc(dt(VRAT_INFO[v.slug]))}</p></section>
+          <p class="method hint">${esc(tt('Calculated for {city} ({lat}, {lon}, {tz}) from local sunrise, sunset and moonrise, with the Lahiri ayanamsa.', { city, lat: c.lat.toFixed(2), lon: c.lon.toFixed(2), tz: c.tz }))} ${esc(dt(VRAT_RULE))}</p>
+          ${cta(tt('Panchang for {city}', { city }), `/panchang/${c.slug}`, tt('Tithi, nakshatra and the good times for today.'))}
+          ${faqHtml(faq)}
+          <section class="block"><h2>${esc(tt('Other vrats in {city}', { city }))}</h2><ul class="link-grid">${VRATS.filter((o) => o.slug !== v.slug).map((o) => `<li><a href="/vrat/${o.slug}/${c.slug}">${esc(dt(o.name))}</a></li>`).join('')}</ul></section>
+          <section class="block"><h2>${esc(tt('{vrat} in other cities', { vrat }))}</h2><ul class="link-grid">${CITY.filter((o) => o.slug !== c.slug).slice(0, 60).map((o) => `<li><a href="/vrat/${v.slug}/${o.slug}">${esc(dt(o.name))}</a></li>`).join('')}</ul></section>
+          ${subscribeBox(lang, `/vrat/${v.slug}/${c.slug}`, c.name)}`,
+      });
+    }), 3600);
+  });
+
+  app.get('/data/vrat/:slug/:city.json', (req, res, next) => {
+    const v = VRAT_BY_SLUG.get(req.params.slug); const c = CITY_BY_SLUG.get(req.params.city); if (!v || !c) return next();
+    const base = baseOf(req);
+    res.set({ 'Cache-Control': 'public, max-age=3600, s-maxage=21600', 'Access-Control-Allow-Origin': '*' }).json({
+      source: `${base}/vrat/${v.slug}/${c.slug}`, method: `${base}/insights/how-rekha-works`, license: 'Free to cite with a link to the source page.',
+      vrat: v.name, city: { name: c.name, lat: c.lat, lon: c.lon, timezone: c.tz }, generatedAt: new Date().toISOString(), rule: VRAT_RULE,
+      dates: vratDates(v.slug, c, todayIn(c.tz)),
+    });
+  });
+
   // ---------- crawlers ----------
   // Sitemap index: one file per language for the daily pages, one for festivals per language,
   // one for the guides. Each stays far below the 50,000-address limit as cities are added.
@@ -615,7 +805,7 @@ export function seoRoutes(app) {
     const today = todayIn('Asia/Kolkata');
     if (kind === 'pages') {
       return [
-        ['/', today, 'daily', '1.0'], ['/insights', UPDATED, 'weekly', '0.8'], ['/horoscope', today, 'daily', '0.9'], ['/festivals', today, 'daily', '0.9'],
+        ['/', today, 'daily', '1.0'], ['/insights', UPDATED, 'weekly', '0.8'], ['/horoscope', today, 'daily', '0.9'], ['/festivals', today, 'daily', '0.9'], ['/widgets', UPDATED, 'monthly', '0.4'],
         ...DAILY.map((x) => [`/${x}`, today, 'daily', '0.8']),
         ...SIGN_SLUGS.map((s) => [`/horoscope/${s}`, today, 'daily', '0.8']),
         ...CITY.flatMap((c) => [
@@ -626,8 +816,11 @@ export function seoRoutes(app) {
       ].map(([u, ...rest]) => [localePath(lang, u), ...rest]);
     }
     if (kind === 'festivals') {
-      return FESTIVALS.filter((f) => nextFestivalDate(f.slug)).flatMap((f) => [[`/festivals/${f.slug}`, today, 'weekly', '0.8'], ...(f.city ? CITY.map((c) => [`/festivals/${f.slug}/${c.slug}`, today, 'weekly', '0.6']) : [])])
-        .map(([u, ...rest]) => [localePath(lang, u), ...rest]);
+      return [
+        ...FESTIVALS.filter((f) => nextFestivalDate(f.slug)).flatMap((f) => [[`/festivals/${f.slug}`, today, 'weekly', '0.8'], ...(f.city ? CITY.map((c) => [`/festivals/${f.slug}/${c.slug}`, today, 'weekly', '0.6']) : [])]),
+        ['/vrat', today, 'weekly', '0.8'],
+        ...VRATS.flatMap((v) => [[`/vrat/${v.slug}`, today, 'weekly', '0.8'], ...CITY.map((c) => [`/vrat/${v.slug}/${c.slug}`, today, 'weekly', '0.6'])]),
+      ].map(([u, ...rest]) => [localePath(lang, u), ...rest]);
     }
     return [
       ...ARTICLES.flatMap((a) => articleLangs(a).map((l) => [localePath(l, `/insights/${a.slug}`), UPDATED, 'monthly', '0.7'])),
@@ -694,7 +887,8 @@ ${files.map((f) => `<sitemap><loc>${base}/sitemaps/${f}.xml</loc><lastmod>${toda
         const x = festivalIn(fest.slug, c, todayIn('Asia/Kolkata')); if (!x) return next();
         date = x.date; title = `${fest.name} ${x.date.slice(0, 4)} in ${c.name}`;
         big = fest.kind === 'moonrise' ? `Moonrise ${x.moonrise}` : fest.kind === 'chhath' ? `Arghya ${x.sandhyaArghya} / ${x.ushaArghya}` : x.muhurat ? `${x.muhurat.start} to ${x.muhurat.end}` : `Pradosh ${x.pradosh?.start} to ${x.pradosh?.end}`;
-        sub = fest.kind === 'lakshmi' ? 'Puja muhurat' : fest.kind === 'nishita' ? 'Nishita puja time' : fest.kind === 'pradosh' ? 'Holika Dahan' : 'Local times';
+        if (fest.kind === 'lohri') big = `Sunset ${x.bonfire}`; else if (fest.kind === 'pongal') big = `Sankranti ${x.transit}`;
+        sub = { lakshmi: 'Puja muhurat', nishita: 'Nishita puja time', pradosh: 'Holika Dahan', aparahna: 'Tilak muhurat', govardhan: 'Morning muhurat', pradoshkal: 'Deep daan time', sankranti: 'Punya Kaal', pongal: 'Thai Pongal', lohri: 'Lohri' }[fest.kind] || 'Local times';
       } else {
         const d = dayData(c, offset); date = d.date;
         const rk = d.t.badTimes.find((b) => b.name === 'Rahu Kaal'); const best = d.t.bestWindows.general[0];
@@ -767,6 +961,7 @@ Key facts:
 
 ## Festivals
 - [Upcoming Hindu festivals](${base}/festivals): next dates of ${FESTIVALS.length} festivals
+- [Monthly vrat dates](${base}/vrat): Ekadashi (with parana times), Purnima, Amavasya, Pradosh and Sankashti Chaturthi (with moonrise) for the next 12 months, for every city at /vrat/<vrat>/<city>; JSON at /data/vrat/<vrat>/<city>.json
 ${festivalCalendar().slice(0, 8).map((f) => `- [${f.name} ${f.date.slice(0, 4)}](${base}/festivals/${f.slug}): ${f.date}${f.city ? `, with ${f.kind === 'moonrise' ? 'moonrise' : f.kind === 'chhath' ? 'arghya' : 'muhurat'} times for every city at /festivals/${f.slug}/<city>` : ''}`).join('\n')}
 
 ## Data (JSON, free to cite with a link)

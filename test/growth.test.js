@@ -87,7 +87,7 @@ test('JSON data, share images and IndexNow', async () => {
   assert.equal(await (await get(`/${indexNowKey()}.txt`)).text(), indexNowKey());
   const sent = [];
   const st = await submitIndexNow('https://rekha.io', app.locals.allUrls('https://rekha.io'), async (url, o) => { sent.push(JSON.parse(o.body)); return { status: 200 }; });
-  assert.deepEqual(st, [200]);
+  assert.ok(st.length >= 1 && st.every((x) => x === 200)); // 10,000 addresses per batch
   assert.equal(sent[0].host, 'rekha.io');
   assert.ok(sent[0].urlList.includes('https://rekha.io/festivals/diwali/mumbai'));
   const robots = await (await get('/robots.txt')).text();

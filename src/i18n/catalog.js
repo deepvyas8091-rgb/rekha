@@ -63,7 +63,7 @@ const SHOWN_LOWERCASE = ['best', 'good', 'neutral', 'bad', 'mixed', 'excellent',
 const DATA_FILES = [
   'src/engine/constants.js', 'src/engine/muhurta.js', 'src/engine/panchang.js', 'src/engine/kundli.js', 'src/engine/matching.js',
   'src/engine/world.js', 'src/engine/horoscope.js', 'src/readings/palm.js', 'src/readings/face.js', 'src/plans.js',
-  'src/data/cities.js', 'src/data/seo-cities.js', 'src/engine/festivals.js', 'src/content/festivals-info.js', 'src/server.js', 'src/auth.js', 'src/billing.js', 'src/ai/reader.js',
+  'src/data/cities.js', 'src/data/seo-cities.js', 'src/engine/festivals.js', 'src/content/festivals-info.js', 'src/engine/vrat.js', 'src/content/vrat-info.js', 'src/server.js', 'src/auth.js', 'src/billing.js', 'src/ai/reader.js',
 ];
 
 // Values the engine builds from parts, listed in full so they translate as a whole.

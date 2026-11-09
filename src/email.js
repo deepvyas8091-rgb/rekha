@@ -121,7 +121,7 @@ export async function sendConfirmation(email, fetchImpl) {
 }
 
 // ---- festival eve ---------------------------------------------------------------------------------
-export const EMAIL_FESTIVALS = ['navratri', 'karwa-chauth', 'dhanteras', 'diwali', 'chhath-puja', 'maha-shivaratri', 'holika-dahan', 'raksha-bandhan', 'janmashtami', 'ganesh-chaturthi'];
+export const EMAIL_FESTIVALS = ['navratri', 'karwa-chauth', 'dhanteras', 'diwali', 'chhath-puja', 'lohri', 'makar-sankranti', 'maha-shivaratri', 'holika-dahan', 'raksha-bandhan', 'janmashtami', 'ganesh-chaturthi'];
 const CITY_BY_NAME = new Map(CITY.map((c) => [c.name.toLowerCase(), c]));
 const todayIST = (now) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(now);
 const hourIST = (now) => +new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Kolkata', hour: '2-digit', hourCycle: 'h23' }).format(now);

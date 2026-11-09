@@ -129,6 +129,9 @@ function festivalMessage(lang, f, x, city) {
   if (f.kind === 'lakshmi' && x.muhurat) body = `${t(lang, 'Puja muhurat {start} to {end}.', x.muhurat)} ${body}`;
   else if (f.kind === 'nishita' && x.muhurat) body = `${t(lang, 'Nishita puja {start} to {end}.', x.muhurat)} ${body}`;
   else if (f.kind === 'moonrise' && x.moonrise) body = `${t(lang, 'Moonrise {time}.', { time: x.moonrise })} ${body}`;
+  else if (f.kind === 'sankranti' && x.muhurat) body = `${t(lang, 'Punya Kaal {start} to {end}.', x.muhurat)} ${body}`;
+  else if (['aparahna', 'govardhan', 'pradoshkal'].includes(f.kind) && x.muhurat) body = `${t(lang, 'Puja muhurat {start} to {end}.', x.muhurat)} ${body}`;
+  else if (f.kind === 'lohri') body = `${t(lang, 'Sunset {time}.', { time: x.bonfire })} ${body}`;
   else if (f.kind === 'chhath') body = `${t(lang, 'Evening arghya at {sunset}, morning arghya at {sunrise}.', { sunset: x.sandhyaArghya, sunrise: x.ushaArghya })} ${body}`;
   return { title, body };
 }
