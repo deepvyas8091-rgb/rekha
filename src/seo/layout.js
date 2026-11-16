@@ -4,6 +4,7 @@
 import { tFor, LANGS, localePath, readyLangs } from '../i18n/index.js';
 import { asset, fontTags } from '../assets.js';
 import { analyticsHead, consentBar } from '../analytics.js';
+import { indexable as worthIndexing } from './indexing.js';
 import { htmlAttrs, hreflangTags, langMenu, localizeLinks } from '../i18n/shell.js';
 
 export const SITE = {
@@ -60,9 +61,11 @@ export function page(opts) {
   const lang = opts.lang || 'en';
   const tt = tFor(lang);
   const base = (opts.base || SITE.url()).replace(/\/$/, '');
-  const langs = opts.langs || readyLangs();
+  const ready = opts.langs || readyLangs();
+  // hreflang lists only the language versions that are open to search engines (see indexing.js).
+  const langs = ready.filter((l) => worthIndexing(l, opts.path));
   const indexable = !opts.noindex && langs.includes(lang);
-  const canonical = `${base}${localePath(langs.includes(lang) ? lang : 'en', opts.path)}`;
+  const canonical = `${base}${localePath(ready.includes(lang) ? lang : 'en', opts.path)}`;
   const crumbs = opts.crumbs || [];
   const crumbLd = crumbs.length ? [{
     '@context': 'https://schema.org', '@type': 'BreadcrumbList',
@@ -76,7 +79,7 @@ export function page(opts) {
     logo: `${base}/icons/icon-512.png`, ...(sameAs.length ? { sameAs } : {}),
   }, {
     '@context': 'https://schema.org', '@type': 'WebSite', '@id': `${base}/#website`, name: 'Rekha', url: `${base}/`,
-    publisher: { '@id': `${base}/#org` }, inLanguage: langs.map((l) => LANGS[l].hreflang),
+    publisher: { '@id': `${base}/#org` }, inLanguage: ready.map((l) => LANGS[l].hreflang),
   }] : [];
   const ld = [...siteLd, ...crumbLd, ...(opts.jsonld || [])].map((o) => `<script type="application/ld+json">${JSON.stringify(o).replace(/</g, '\\u003c')}</script>`).join('\n');
   const html = `<!doctype html>
@@ -108,7 +111,7 @@ ${analyticsHead()}
 <header class="site-head">
   <div class="bar">
     <a class="brand" href="/" style="text-decoration:none"><img class="mark" src="/icons/logo-64.png" width="32" height="32" alt="" aria-hidden="true"> Rekha</a>
-    <div class="top-actions">${langMenu(lang, opts.path, langs.includes(lang) ? langs : [...langs, lang])}<a class="chip-btn premium" href="/">${esc(tt('Open app'))}</a></div>
+    <div class="top-actions">${langMenu(lang, opts.path, ready.includes(lang) ? ready : [...ready, lang])}<a class="chip-btn premium" href="/">${esc(tt('Open app'))}</a></div>
   </div>
   <nav class="tabs" aria-label="${esc(tt('Sections'))}">
     <a href="/">${esc(tt('Today'))}</a><a href="/choghadiya">${esc(tt('Choghadiya'))}</a><a href="/panchang">${esc(tt('Panchang'))}</a><a href="/festivals">${esc(tt('Festivals'))}</a><a href="/vrat">${esc(tt('Vrat dates'))}</a><a href="/horoscope">${esc(tt('Horoscope'))}</a><a href="/insights">${esc(tt('Insights'))}</a><a href="/?tab=chart">${esc(tt('Kundli'))}</a><a href="/?tab=scan">${esc(tt('Palm & Face'))}</a>

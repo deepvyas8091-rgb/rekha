@@ -44,7 +44,7 @@ test('language pages: html lang, translated text, hreflang, prefixed links', asy
   const html = await (await get('/gu/choghadiya/vadodara')).text();
   assert.match(html, /<html lang="gu" data-lang="gu"/);
   assert.match(html, /<h1>વડોદરામાં આજનાં ચોઘડિયાં<\/h1>/);
-  assert.match(html, /hreflang="hi" href="[^"]+\/hi\/choghadiya\/vadodara"/);
+  assert.match(html, /hreflang="en" href="[^"]+\/choghadiya\/vadodara"/); // only languages spoken in the city are listed (src/seo/indexing.js)
   assert.match(html, /hreflang="x-default" href="[^"]+\/choghadiya\/vadodara"/);
   assert.match(html, /href="\/gu\/rahu-kaal\/vadodara"/);
   assert.match(html, /\/fonts\/noto-sans-gujarati\/noto-sans-gujarati-gujarati-400-normal\.woff2/);

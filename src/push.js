@@ -107,10 +107,13 @@ export function dueFor(sub, now = new Date()) {
   // allowed festival reminders, at their morning time (or 07:30).
   if (sub.news) {
     const at = sub.morning || '07:30';
-    const fest = festivalCalendar().find((f) => f.date === date || Math.abs(Date.parse(f.date) - Date.parse(date)) <= 86400000);
-    if (fest && sent[`fest:${fest.slug}`] !== date && n >= mins(at) && n < mins(at) + 30) {
-      const x = festivalForSub(fest.slug, sub, date);
-      if (x?.date === date) out.push({ kind: `fest:${fest.slug}`, tag: `rekha-fest-${fest.slug}`, url: `/festivals/${fest.slug}`, ...festivalMessage(lang, fest, x, city) });
+    const already = Object.entries(sent).some(([k, v]) => k.startsWith('fest:') && v === date); // one festival reminder a day
+    if (!already && n >= mins(at) && n < mins(at) + 30) {
+      // Festivals can sit on neighbouring days (Diwali, Govardhan Puja, Bhai Dooj): take the first whose date in this city is today.
+      for (const fest of festivalCalendar(date).filter((f) => Math.abs(Date.parse(f.date) - Date.parse(date)) <= 86400000)) {
+        const x = festivalForSub(fest.slug, sub, date);
+        if (x?.date === date) { out.push({ kind: `fest:${fest.slug}`, tag: `rekha-fest-${fest.slug}`, url: `/festivals/${fest.slug}`, ...festivalMessage(lang, fest, x, city) }); break; }
+      }
     }
   }
   return out.map((x) => ({ ...x, date }));
@@ -119,7 +122,7 @@ export function dueFor(sub, now = new Date()) {
 const festCache = new Map();
 function festivalForSub(slug, sub, date) {
   const key = `${slug}:${sub.lat.toFixed(1)},${sub.lon.toFixed(1)},${sub.tz}:${date}`;
-  if (!festCache.has(key)) { if (festCache.size > 2000) festCache.clear(); festCache.set(key, festivalIn(slug, sub)); }
+  if (!festCache.has(key)) { if (festCache.size > 2000) festCache.clear(); festCache.set(key, festivalIn(slug, sub, date)); }
   return festCache.get(key);
 }
 function festivalMessage(lang, f, x, city) {

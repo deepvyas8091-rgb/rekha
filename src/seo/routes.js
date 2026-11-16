@@ -18,6 +18,7 @@ import { RASHI } from '../engine/constants.js';
 import { priceFor } from '../pricing.js';
 import { shareImage } from './og.js';
 import { indexNowKey } from './indexnow.js';
+import { indexable } from './indexing.js';
 import { tFor, dataT, monthT, LANGS, localePath, readyLangs, isReady, articleFor, articleLangs } from '../i18n/index.js';
 
 export const ARTICLES = [...timings, ...panchangArticles, ...readings, ...about];
@@ -790,7 +791,7 @@ ${row(tt('Sunrise / Sunset'), `${t.sunrise} / ${t.sunset}`)}${rk ? row(dt('Rahu 
   app.get('/data/vrat/:slug/:city.json', (req, res, next) => {
     const v = VRAT_BY_SLUG.get(req.params.slug); const c = CITY_BY_SLUG.get(req.params.city); if (!v || !c) return next();
     const base = baseOf(req);
-    res.set({ 'Cache-Control': 'public, max-age=3600, s-maxage=21600', 'Access-Control-Allow-Origin': '*' }).json({
+    res.set({ 'Cache-Control': 'public, max-age=3600, s-maxage=21600', 'Access-Control-Allow-Origin': '*', 'X-Robots-Tag': 'noindex' }).json({
       source: `${base}/vrat/${v.slug}/${c.slug}`, method: `${base}/insights/how-rekha-works`, license: 'Free to cite with a link to the source page.',
       vrat: v.name, city: { name: c.name, lat: c.lat, lon: c.lon, timezone: c.tz }, generatedAt: new Date().toISOString(), rule: VRAT_RULE,
       dates: vratDates(v.slug, c, todayIn(c.tz)),
@@ -813,14 +814,14 @@ ${row(tt('Sunrise / Sunset'), `${t.sunrise} / ${t.sunset}`)}${rk ? row(dt('Rahu 
           ...DAILY.map((x) => [`/${x}/${c.slug}/tomorrow`, today, 'daily', '0.6']),
           [`/panchang/${c.slug}/calendar`, today, 'weekly', '0.6'],
         ]),
-      ].map(([u, ...rest]) => [localePath(lang, u), ...rest]);
+      ].filter(([u]) => indexable(lang, u)).map(([u, ...rest]) => [localePath(lang, u), ...rest]);
     }
     if (kind === 'festivals') {
       return [
         ...FESTIVALS.filter((f) => nextFestivalDate(f.slug)).flatMap((f) => [[`/festivals/${f.slug}`, today, 'weekly', '0.8'], ...(f.city ? CITY.map((c) => [`/festivals/${f.slug}/${c.slug}`, today, 'weekly', '0.6']) : [])]),
         ['/vrat', today, 'weekly', '0.8'],
         ...VRATS.flatMap((v) => [[`/vrat/${v.slug}`, today, 'weekly', '0.8'], ...CITY.map((c) => [`/vrat/${v.slug}/${c.slug}`, today, 'weekly', '0.6'])]),
-      ].map(([u, ...rest]) => [localePath(lang, u), ...rest]);
+      ].filter(([u]) => indexable(lang, u)).map(([u, ...rest]) => [localePath(lang, u), ...rest]);
     }
     return [
       ...ARTICLES.flatMap((a) => articleLangs(a).map((l) => [localePath(l, `/insights/${a.slug}`), UPDATED, 'monthly', '0.7'])),
@@ -850,6 +851,8 @@ ${files.map((f) => `<sitemap><loc>${base}/sitemaps/${f}.xml</loc><lastmod>${toda
   app.locals.allUrls = (base) => [...readyLangs().flatMap((l) => [...sitemapPages(l, 'pages'), ...sitemapPages(l, 'festivals')]), ...sitemapPages('en', 'insights')].map(([u]) => `${base}${u}`);
 
   // Machine-readable daily data for AI assistants and developers: the same numbers as the pages.
+  // The JSON data is for apps and AI assistants to read; it is not a page for search results.
+  app.use('/data', (req, res, next) => { res.set('X-Robots-Tag', 'noindex'); next(); });
   app.get('/data/:type/:city.json', (req, res, next) => {
     const c = CITY_BY_SLUG.get(req.params.city);
     if (!c || !DAILY.includes(req.params.type)) return next();
@@ -911,6 +914,7 @@ ${files.map((f) => `<sitemap><loc>${base}/sitemaps/${f}.xml</loc><lastmod>${toda
 Allow: /
 Disallow: /api/
 Disallow: /admin
+Disallow: /cal/
 Disallow: /*?paid=
 
 User-agent: GPTBot

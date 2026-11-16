@@ -105,3 +105,29 @@ test('embeddable widget can be framed, is not indexed, and the widgets page give
   const w = await (await get('/widgets')).text();
   assert.match(w, /embed\/today\//); assert.match(w, /by Rekha/);
 });
+
+test('only pages with a real audience are open to search engines', async () => {
+  const { indexable } = await import('../src/seo/indexing.js');
+  assert.ok(indexable('en', '/choghadiya/suva'));
+  assert.ok(!indexable('en', '/choghadiya/delhi/tomorrow'));
+  assert.ok(indexable('gu', '/choghadiya/ahmedabad') && indexable('gu', '/festivals/diwali/leicester'));
+  assert.ok(!indexable('gu', '/choghadiya/suva') && !indexable('tl', '/choghadiya/chicago'));
+  assert.ok(indexable('hi', '/festivals/karwa-chauth/vadodara'), 'a page that earned impressions stays');
+  assert.ok(indexable('gu', '/insights/tithi-explained') && indexable('gu', '/festivals/diwali') && indexable('gu', '/'));
+
+  const robots = (h) => h.match(/<meta name="robots" content="([^"]+)"/)[1];
+  const out = await (await get('/gu/choghadiya/suva')).text();
+  assert.equal(robots(out), 'noindex, follow');
+  assert.doesNotMatch(out, /rel="alternate" hreflang/);
+  assert.match(out, /rel="canonical" href="[^"]+\/gu\/choghadiya\/suva"/);
+  const kept = await (await get('/gu/choghadiya/ahmedabad')).text();
+  assert.match(robots(kept), /^index, follow/);
+  assert.match(kept, /hreflang="en" href="[^"]+\/choghadiya\/ahmedabad"/);
+  assert.doesNotMatch(kept, /hreflang="fil"/, 'Filipino is not offered for Ahmedabad, so it is not listed');
+  assert.equal(robots(await (await get('/choghadiya/delhi/tomorrow')).text()), 'noindex, follow');
+
+  const sm = await (await get('/sitemaps/pages-gu.xml')).text();
+  assert.match(sm, /\/gu\/choghadiya\/ahmedabad</); assert.doesNotMatch(sm, /\/gu\/choghadiya\/suva</); assert.doesNotMatch(sm, /\/tomorrow</);
+  assert.match(await (await get('/robots.txt')).text(), /Disallow: \/cal\//);
+  assert.equal((await get('/data/rahu-kaal/mumbai.json')).headers.get('x-robots-tag'), 'noindex');
+});

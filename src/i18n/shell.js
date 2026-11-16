@@ -21,7 +21,7 @@ export function htmlAttrs(lang, extra = '') {
 export function hreflangTags(base, pagePath, langs) {
   if (!base) return '';
   const tags = langs.map((l) => `<link rel="alternate" hreflang="${LANGS[l].hreflang}" href="${esc(base + localePath(l, pagePath))}">`);
-  tags.push(`<link rel="alternate" hreflang="x-default" href="${esc(base + pagePath)}">`);
+  if (langs.includes('en')) tags.push(`<link rel="alternate" hreflang="x-default" href="${esc(base + pagePath)}">`);
   return tags.join('\n');
 }
 
