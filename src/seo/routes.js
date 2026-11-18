@@ -19,6 +19,8 @@ import { priceFor } from '../pricing.js';
 import { shareImage } from './og.js';
 import { indexNowKey } from './indexnow.js';
 import { indexable } from './indexing.js';
+import { toolRoutes } from './tools.js';
+import { TOOLS } from '../content/tools-info.js';
 import { tFor, dataT, monthT, LANGS, localePath, readyLangs, isReady, articleFor, articleLangs } from '../i18n/index.js';
 
 export const ARTICLES = [...timings, ...panchangArticles, ...readings, ...about];
@@ -138,6 +140,7 @@ export const festAnswer = (lang, f, x, city) => {
 };
 
 export function seoRoutes(app) {
+  toolRoutes(app, { page, send, cached, faqLd, baseOf, langOf, helpers });
   // ---------- insights ----------
   app.get('/insights', (req, res) => {
     const lang = langOf(req);
@@ -807,6 +810,7 @@ ${row(tt('Sunrise / Sunset'), `${t.sunrise} / ${t.sunset}`)}${rk ? row(dt('Rahu 
     if (kind === 'pages') {
       return [
         ['/', today, 'daily', '1.0'], ['/insights', UPDATED, 'weekly', '0.8'], ['/horoscope', today, 'daily', '0.9'], ['/festivals', today, 'daily', '0.9'], ['/widgets', UPDATED, 'monthly', '0.4'],
+        ['/tools', UPDATED, 'weekly', '0.9'], ...TOOLS.map((x) => [`/tools/${x.slug}`, UPDATED, 'weekly', '0.9']),
         ...DAILY.map((x) => [`/${x}`, today, 'daily', '0.8']),
         ...SIGN_SLUGS.map((s) => [`/horoscope/${s}`, today, 'daily', '0.8']),
         ...CITY.flatMap((c) => [
@@ -962,6 +966,9 @@ Key facts:
 - [Daily horoscope by rashi](${base}/horoscope): all 12 Moon signs, with love, career, money and energy ratings
 - Address patterns for ${CITY.length} cities: /choghadiya/<city>, /rahu-kaal/<city>, /panchang/<city>, each also with /tomorrow, and /panchang/<city>/calendar (two months)
 - Example: [Choghadiya today in Mumbai](${base}/choghadiya/mumbai), [Rahu Kaal tomorrow in London](${base}/rahu-kaal/london/tomorrow), [Panchang calendar for Ahmedabad](${base}/panchang/ahmedabad/calendar)
+
+## Free calculators
+${TOOLS.map((x) => `- [${x.name}](${base}/tools/${x.slug}): ${x.description}`).join('\n')}
 
 ## Festivals
 - [Upcoming Hindu festivals](${base}/festivals): next dates of ${FESTIVALS.length} festivals

@@ -46,6 +46,8 @@ export function indexable(lang, path) {
   if (!path) return true;
   const clean = path.split('?')[0].replace(/\/$/, '') || '/';
   if (EARNED_PAGES.has(localePath(lang, clean).replace(/\/$/, '') || '/')) return true;
+  // The calculators are offered in English only until their translations have been reviewed.
+  if (/^\/tools(\/|$)/.test(clean)) return lang === 'en';
   const city = cityOf(clean);
   if (!city) return true;
   if (/\/tomorrow$/.test(clean)) return false;
