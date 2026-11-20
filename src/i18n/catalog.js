@@ -87,10 +87,13 @@ export function catalog() {
   ]);
   const guideText = uniq(literalStrings(guide.slice(0, guide.indexOf('export const PALM_SVG'))).filter((s) => !notText(s) && /\s|^[A-Z]/.test(s)))
     .filter((s) => !app.includes(s));
-  const seoSrc = ['src/seo/routes.js', 'src/seo/tools.js', 'src/seo/layout.js', 'src/i18n/shell.js', 'src/server.js', 'src/push.js', 'src/subscribers.js', 'src/email.js', 'src/analytics.js', 'src/engagement.js', 'src/monthly.js'].map(read).join('\n');
+  const seoSrc = ['src/seo/routes.js', 'src/seo/layout.js', 'src/i18n/shell.js', 'src/server.js', 'src/push.js', 'src/subscribers.js', 'src/email.js', 'src/analytics.js', 'src/engagement.js', 'src/monthly.js'].map(read).join('\n');
   const seo = uniq(callStrings(seoSrc)).filter((s) => !app.includes(s));
   const inApp = new Set([...app, ...guideText, ...seo]);
+  // The calculators' interface text is translated like content: it must not hold a whole language
+  // back from search (the 95% rule below counts only the app and page text).
   const data = uniq([
+    ...callStrings(read('src/seo/tools.js')),
     ...DATA_FILES.flatMap((f) => literalStrings(read(f)).filter((s) => !notText(s) && (f !== 'src/ai/reader.js' || /paused|Tele-MANAS|Demo mode/.test(s)))),
     ...SHOWN_LOWERCASE,
     ...GENERATED,

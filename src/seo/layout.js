@@ -1,7 +1,7 @@
 // Server-rendered HTML for SEO pages: full content without JavaScript, so search
 // engines and AI crawlers read everything. Shares the app's stylesheet.
 
-import { tFor, LANGS, localePath, readyLangs } from '../i18n/index.js';
+import { tFor, dataT, LANGS, localePath, readyLangs } from '../i18n/index.js';
 import { asset, fontTags } from '../assets.js';
 import { analyticsHead, consentBar } from '../analytics.js';
 import { indexable as worthIndexing } from './indexing.js';
@@ -114,7 +114,7 @@ ${analyticsHead()}
     <div class="top-actions">${langMenu(lang, opts.path, ready.includes(lang) ? ready : [...ready, lang])}<a class="chip-btn premium" href="/">${esc(tt('Open app'))}</a></div>
   </div>
   <nav class="tabs" aria-label="${esc(tt('Sections'))}">
-    <a href="/">${esc(tt('Today'))}</a><a href="/choghadiya">${esc(tt('Choghadiya'))}</a><a href="/panchang">${esc(tt('Panchang'))}</a><a href="/festivals">${esc(tt('Festivals'))}</a><a href="/vrat">${esc(tt('Vrat dates'))}</a><a href="/tools">${esc(tt('Free tools'))}</a><a href="/horoscope">${esc(tt('Horoscope'))}</a><a href="/insights">${esc(tt('Insights'))}</a><a href="/?tab=chart">${esc(tt('Kundli'))}</a><a href="/?tab=scan">${esc(tt('Palm & Face'))}</a>
+    <a href="/">${esc(tt('Today'))}</a><a href="/choghadiya">${esc(tt('Choghadiya'))}</a><a href="/panchang">${esc(tt('Panchang'))}</a><a href="/festivals">${esc(tt('Festivals'))}</a><a href="/vrat">${esc(tt('Vrat dates'))}</a><a href="/tools">${esc(dataT(lang, 'Free tools'))}</a><a href="/horoscope">${esc(tt('Horoscope'))}</a><a href="/insights">${esc(tt('Insights'))}</a><a href="/?tab=chart">${esc(tt('Kundli'))}</a><a href="/?tab=scan">${esc(tt('Palm & Face'))}</a>
   </nav>
 </header>
 ${opts.notice ? `<div class="lang-note">${opts.notice}</div>` : ''}
